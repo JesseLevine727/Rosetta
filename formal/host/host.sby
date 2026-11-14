@@ -1,0 +1,71 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_host (host.md + decisions.md).
+#  Run from formal/host/, with run directories kept out of the tree:
+#      sby -f host.sby -d ref/build/host_prove prove   (prove | bmc | cover)
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_host.sv ../../src/rosetta_host.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_host.sv ref/rosetta_host.sv
+host_props.sv
+host_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded. Two engines in parallel; the first conclusive answer
+#         wins (an inconclusive induction is not an answer):
+#           smtbmc bitwuzla  k-induction, depth 10. The checker's model
+#                            mirrors all nine spec flops (eight observed on
+#                            obs_* / miso_o / irq_o; sclk_prev equals sclk_i
+#                            of the previous cycle after one step), and the
+#                            lemmas l_* make the master / scoreboard state of
+#                            u_env a function of the model state, so a legal
+#                            frame (>= 570 cycles) is never unrolled. Measured
+#                            minimum: depth 8, set by u_free's a_p7_* (a PEND
+#                            run of 5 cycles plus the request edge and the
+#                            cycle before it must lie inside the window); 10
+#                            is that plus margin.
+#           abc pdr          needs no depth (backup; finds its own invariants).
+#  bmc    bounded cross-check only, depth 100. Justification: it is not the
+#         completeness argument (prove is). Depth 100 holds one complete
+#         request of any kind on the free-pin instance from reset (CS_n low,
+#         40 rising edges two cycles apart = 81 cycles, service <= 5, read
+#         capture <= 6, so <= 92) plus the longest assertion window (6
+#         cycles, a_p7_pend5) with margin, from arbitrary initial flop
+#         values; every assertion is checked in every one of those cycles.
+#         Legal-timing frames (u_env, >= 570 cycles) are out of bmc reach on
+#         purpose: they are proven by k-induction.
+#  cover  depth 210 (FV_COVER adds the cover-only instance u_c, see
+#         host_fv.sv). Deepest covers, all on time-compressed or free pins:
+#         u_c c_rd_data_done (MADDR write frame ~82 cycles + 48-edge MDATA
+#         read frame ~96 + gaps ~ 190) and c_b2b_md_wr (~175); u_f
+#         c_f_wrap / c_f_rd_data (~100). Real-timing covers (u_e):
+#         c_fast_serve (8 edges at the fastest legal SCLK + service ~ 120).
+#         210 = the deepest plus margin.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 10
+bmc: mode bmc
+bmc: depth 100
+cover: mode cover
+cover: depth 210
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+cover: read -define FV_COVER
+read -formal rosetta_host.sv
+read -formal host_props.sv
+read -formal host_fv.sv
+prep -top host_fv

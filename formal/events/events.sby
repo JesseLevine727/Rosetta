@@ -1,0 +1,69 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_events (events.md + decisions.md rulings 10, 21).
+#  Run from formal/events/, with run directories kept out of the tree:
+#      sby -f events.sby -d ref/build/events_prove prove   (prove | bmc | cover)
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_events.sv ref/rosetta_events.sv
+# ============================================================================
+[files]
+rosetta_events.sv ../../src/rosetta_events.sv
+events_props.sv
+events_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded proof of every assertion, the independence miter of
+#         events_fv.sv (INDEP = 1, two copies of the design) included.
+#         Engine abc pdr: it needs no depth and finds the design's own
+#         invariants (counter against configuration, window against done),
+#         which k-induction cannot see from the ports.
+#  bmc    bounded cross-check of the same assertions on one copy (INDEP = 0:
+#         the two-copy miter makes each step several times slower and is
+#         proved unboundedly by `prove`), depth 70, justification below.
+#  cover  every cover statement reachable (both copies, c_indep included),
+#         depth 70.
+#
+#  Depth justification. Every state of the spec (per detector: win, done,
+#  lv, cnt <= K; the pending bits; any configuration) is reachable within
+#  66 cycles: reset (step 0; cfg_evc_i may take any value at the end of a
+#  reset cycle), a trigger with K = 63 at step 1 (cnt = 63), 62 cycles with
+#  pt_i to bring cnt down to 1 (step 63), the fire at step 64, the pending
+#  bit visible at step 65. Smaller cnt values and the other detectors are
+#  reached on the way (the four detectors run in parallel), and every
+#  checker monitor (e_*, l_*, ts_*, fs_*: strobes still needed, counted
+#  down from K to 0, plus one-bit flags) is in every reachable state by
+#  then too, since it is loaded together with the spec window. Every
+#  assertion relates at most two consecutive cycles plus that monitor state,
+#  so from step 66 on bmc checks every transition from every reachable
+#  spec and monitor state; depth 70 adds margin. This covers the design
+#  only as far as its own state is a function of the spec state (any design
+#  meeting a_m_fire / a_m_pend); the bmc result is supplementary, `prove` is
+#  the unbounded result. Deepest covers: c_t*_k63 (trigger at step 1, fire
+#  at step 65 on the reference model) and c_ps8 (step 18); depth 70 is that
+#  plus margin.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+bmc: mode bmc
+bmc: depth 70
+cover: mode cover
+cover: depth 70
+
+[engines]
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read_verilog -sv -formal rosetta_events.sv
+read_verilog -sv -formal events_props.sv
+read_verilog -sv -formal events_fv.sv
+bmc: chparam -set INDEP 0 events_fv
+prep -top events_fv

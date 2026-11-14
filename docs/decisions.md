@@ -62,6 +62,18 @@ Rulings on field.md ambiguities (they amend field.md):
 | 37 | 8 | Abort keeps `lstf` and `pstf`; promotion clears them. |
 | 38 | 2.1 / 6.2 / 8 | Cases the sequencer never produces are still defined: an ack in an abort cycle is ignored; a park in the same cycle as a promotion sets `pk_v`; `CRCCHK` wins over an `EXPECT` completion writing `M`, and acts whenever `run_i` is high. |
 
+Rulings on tick.md ambiguities (they amend tick.md):
+
+| # | Section | Ruling |
+|---|---|---|
+| 39 | 8 | "At most one clock request per cycle" holds because the idle request made by a `TICK` write wins: a stretch start or a `BAUD` launch in that cycle makes no clock request (the launch keeps its `lt`). |
+| 40 | 4.1 | `creq` and `bt_stop` are active whenever the mode is `BAUD` or `PULSE`; only `lt`, `ct`, `cte`, `hte` depend on a `BAUD`-timed field being current. |
+| 41 | 4.2 | A second `fld_first` while the stretch release is counting does not restart the count. |
+| 42 | 5 | `spend` clears on the `BAUD` sample strobe even if the field has ended; `sarm` clears at the round trip whether or not `st` fired; the countdown is armed on every `BAUD` capture. If a delayed clock change is cancelled, `spend` stays set until abort, halt or a `TICK` write; the lane-level proof must show this cannot happen in a running program. |
+| 43 | 7 | A non-raw timer start with a count of 0 does not start the timer. A new start suppresses the old timer's `ot_done` in that cycle. A `TICK` write does not cancel the timer. |
+| 44 | 4.3, 4.1 | A `TICK` write produces no `lt`; when nothing applies `cnt` holds; a stop clears `bt_run` and `lr` only. |
+| 45 | 9.2 | Delay unit: while halted all outputs are 0; a new delayed request flushes the pending one; the raw counter may saturate at 255. |
+
 Known risks, not rulings: Ethernet receive has about half a cycle of
 jitter margin with single-edge sampling (decide on the FPGA whether to
 sample on both clock edges); a USB bus reset is timed by software.

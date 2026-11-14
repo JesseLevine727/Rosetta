@@ -317,7 +317,8 @@ TX_CODINGS = {"LEVEL": 0, "NRZI": 1, "MANCHESTER": 2, "PULSE": 3}
 EDGES = {"RISING": 0, "FALLING": 1}
 LEVELS = {"LOW": 0, "HIGH": 1}
 STUFF_MODES = {"ONES": 0, "EQUAL": 1}
-EV_TRIGGERS = {"LEVEL": 0, "EDGE": 1, "ANY": 2, "BOTHLOW": 3}
+# Ruling 10 (docs/decisions.md): 3-bit trigger, 0 = off (reset value), K is 6 bits.
+EV_TRIGGERS = {"OFF": 0, "LEVEL": 1, "EDGE": 2, "ANY": 3, "BOTHLOW": 4}
 EV_B_MUST = {"ANY": 0, "HIGH": 1, "LOW": 2}
 
 
@@ -325,10 +326,10 @@ def _evc(index: int) -> ModeReg:
     return ModeReg(index, f"EVC{index - 10}", 16, (
         B("a", 1, 0, INPUTS),
         B("level", 2, 2, LEVELS),
-        B("trigger", 4, 3, EV_TRIGGERS),
-        B("b", 6, 5, INPUTS),
-        B("b_must", 8, 7, EV_B_MUST),
-        B("k", 15, 9),
+        B("trigger", 5, 3, EV_TRIGGERS),
+        B("b", 7, 6, INPUTS),
+        B("b_must", 9, 8, EV_B_MUST),
+        B("k", 15, 10),
     ))
 
 

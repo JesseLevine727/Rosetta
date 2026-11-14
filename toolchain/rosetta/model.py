@@ -126,21 +126,23 @@ class EventDetector:
         b = (inp >> self.b) & 1
         b_ok = (self.b_must == 0 or (self.b_must == 1 and b == 1)
                 or (self.b_must == 2 and b == 0))          # code 3: never (D21)
-        t = self.trigger
-        if t == 0:                                           # A at level L
+        t = self.trigger                                     # ruling 10 layout
+        if t == 1:                                           # A at level L
             cond = a == self.level and b_ok
             start, hold = cond and not self.prev_cond, cond
             self.prev_cond = cond
-        elif t == 1:                                         # A edge to level L
+        elif t == 2:                                         # A edge to level L
             start = a != a_prev and a == self.level and b_ok
             hold = a == self.level and b_ok
-        elif t == 2:                                         # A any edge
+        elif t == 3:                                         # A any edge
             start = a != a_prev and b_ok
             hold = a == self.held_level and b_ok
-        else:                                                # A and B both low
+        elif t == 4:                                         # A and B both low
             cond = a == 0 and b == 0
             start, hold = cond and not self.prev_cond, cond
             self.prev_cond = cond
+        else:                                                # 0 and 5-7: off
+            start, hold = False, False
         if start:
             self.count, self.held_level = 0, a
         elif self.count is not None:

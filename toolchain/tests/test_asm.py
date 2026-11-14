@@ -59,7 +59,7 @@ class Syntax(unittest.TestCase):
     def test_setm_fields(self):
         w = asm.assemble("SETM EVC0, a=in0, trigger=EDGE, level=LOW, b=in1, b_must=HIGH, k=18").words[0]
         f = isa.mode_decode("EVC0", isa.decode(w)["imm"])
-        self.assertEqual((f["a"], f["trigger"], f["level"], f["b"], f["b_must"], f["k"]), (0, 1, 0, 1, 1, 18))
+        self.assertEqual((f["a"], f["trigger"], f["level"], f["b"], f["b_must"], f["k"]), (0, 2, 0, 1, 1, 18))  # EDGE = 2 since ruling 10
         hi = isa.decode(asm.assemble("SETM CRCPOLY.hi, 0x04C1").words[0])
         self.assertEqual((hi["reg"], hi["upper"], hi["imm"]), (8, 1, 0x04C1))
         self.assertEqual(isa.decode(asm.assemble("SETM PERIOD, R2").words[0])["rs"], 2)

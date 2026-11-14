@@ -174,9 +174,11 @@ data memory, a lane channel, the CRC value, or discard.
 Two IHP SRAM macros, `RM_IHPSG13_1P_512x32_c2_bm_bist` (0.0797 mm2 each):
 
 - **Program memory**, 512 x 32. Written by the host while lanes are halted.
-- **Data memory**, 512 x 32 (2 KB). Holds each lane's queues to and from the
-  host (ring buffers with hardware pointers), packet buffers and capture
-  records.
+- **Data memory**, 512 x 32 (2 KB), hard-partitioned into 128 words per
+  lane: the top two address bits are the lane number, so a lane cannot
+  reach another lane's region. Each region holds that lane's queues to and
+  from the host (ring buffers with hardware pointers), packet buffers and
+  capture records. Lanes exchange data only through channels.
 
 The macros are single-port with registered read data, and they cannot be
 preloaded. After reset all lanes are halted until the host has loaded a
@@ -301,11 +303,21 @@ MicroPython on the demo board.
   with its proof job, and the gap-free schedule check from section 5.2.
 - **Loader**: writes images through the host port and drains queues.
 
-## 15. Open questions
+## 15. Revisions after review (13 Nov)
+
+The description-language draft (`docs/language.md` section 6) found gaps
+that affected "UART, SPI, I2C in every role". The fixes are in
+`docs/isa.md` v0.2 section 7: clock stretching by a target, an early first
+bit for leading-edge capture, separate clock half-periods, an event confirm
+window (which also defines duration events), a CRC residue check, pattern
+seek, record tags, and Stress reaching the clock as well as data. Two are
+left open on purpose: an SPI listener takes two lanes, and event timestamps
+are corrected by the compiler.
+
+## 16. Open questions
 
 1. ~~Four lanes or six~~: decided, four (section 11).
-2. Whether the ones'-complement checksum (needed for answering `ping`)
-   belongs in the sequencer's register arithmetic.
+2. ~~Ones'-complement checksum~~: included as `ALU ADDC`.
 3. Whether sampling on both clock edges is needed for Ethernet receive
    margin, decided on the FPGA.
 4. The description language itself, which is specified separately and

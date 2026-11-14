@@ -21,6 +21,7 @@ together and so every block can be proven with the open-source tools.
 - Registered outputs wherever the block spec does not say otherwise. Target
   clock is 16.67 ns on a slow 130 nm process: keep logic between flops
   shallow (roughly 12 gate levels or fewer).
+- Tool note: this machine sets `VERILATOR_ROOT` for an older install; run the OSS CAD Suite Verilator as `env -u VERILATOR_ROOT verilator ...`.
 - No vendor primitives. Memories are only the two SRAM macros, behind
   `rosetta_mem_*` wrappers.
 

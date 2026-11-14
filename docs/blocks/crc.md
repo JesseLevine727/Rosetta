@@ -29,6 +29,15 @@ With state `s` (`W` bits), on a rising clock edge:
 `state_o` and `value_o` are functions of the registered state only (no
 combinational path from `bit_i`, `en_i` or `init_i`).
 
+`cfg_` inputs change only in reset or in a cycle with `init_i`. `value_o`
+is built combinationally from the state register and the current `cfg_`
+inputs, so with `cfg_xorout_i` set it reads all ones in the low `W` bits
+right after reset.
+
+Limits: the final XOR is all-zeros or all-ones only; for a reflected CRC
+whose initial value is not bit-symmetric, `cfg_init_i` must be given
+bit-reversed.
+
 No bit reflection exists in the hardware. "Reflected" CRCs are the same
 shift register fed in wire order; the lane sends the check value starting
 from bit `W-1`.

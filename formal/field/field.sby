@@ -1,0 +1,95 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_field (field.md; lane.md 7; decisions 6, 7,
+#  18-20, 24, 26-29, 32-38). Run from formal/field/, run dirs under
+#  ref/build/ (gitignored):
+#      sby -f field.sby -d ref/build/field_prove prove
+#      (tasks: prove | prove_e2e | bmc | cover)
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_field.sv ref/rosetta_field.sv
+# ============================================================================
+[files]
+rosetta_field.sv ../../src/rosetta_field.sv
+field_spec.svh
+field_model.sv
+field_props.sv
+field_fv.sv
+
+# ----------------------------------------------------------------------------
+#  Unbounded proof, split in two tasks (assume-guarantee; BOTH must PASS):
+#
+#  prove      abc pdr. Everything except the layer-2 value group (FV_NO_HARD):
+#             layer 1 (a_mdl_*: every output equals the spec model in every
+#             cycle), the shared-bus lemma (a_bus_lemma, two copies), and all
+#             port-level statements (a_p1_* .. a_p16_*, a_e2e_drive... see
+#             field_props.sv: launch exactness, stuffing, CRC feed, release,
+#             hold, PIN/RAW, abort, idle, result register, M, promotion
+#             timing, reset). PDR finds the relations between the design's
+#             hidden state (bit counters, lnch, lstf, pstf, op registers) and
+#             the model by itself.
+#
+#  prove_e2e  smtbmc k-induction, depth 3 (FV_STAGE_B, no bus copy). The
+#             value group: the symbolic watched-bit statements (a_e2e_*,
+#             a_aux_*), completion after exactly n data bits (a_p2_*), the
+#             value of SR / the result after a field (a_p3_*, a_p6_*), CRC bit
+#             of an EXCHANGE (a_p8_crc_exch), plus explicit lemmas (a_lem_*:
+#             launches = data bits + outstanding + pending sample; position of
+#             the watched bit = f(bits done); tracker = model state). Here
+#             layer 1 and the port-level statements are ASSUMED: task `prove`
+#             proves them unboundedly under the same environment, without
+#             using anything of this task, so G(env -> e2e) follows. The
+#             lemmas make the group 2-inductive (k-induction passes at depth
+#             2; depth 3 is margin). These statements need arithmetic
+#             invariants over the counters that PDR does not find (it left
+#             exactly this group open after 30 min).
+#
+#  Nothing is left bounded in the claim: the watched-bit position w_k is an
+#  $anyconst, so each value statement covers every bit position of every
+#  field length 1..32, every data value (park_data_i, crc_value_i, sr_o,
+#  rxb_i free) and every timing the environment allows, unboundedly.
+#
+#  bmc    abc bmc3, depth 12. Supplementary cross-check of the WHOLE set,
+#         directly on the design (no assume-guarantee, bus copy included).
+#         12 steps reach: reset, park, promotion and complete fields of up
+#         to 4 bits (DRIVE/EXCHANGE: 2 cycles per bit) or 8 bits
+#         (SAMPLE/EXPECT: 1 per bit) with their result, an overrun HOLD and
+#         its release, and the next promotion. It is not the claim.
+#  cover  smtbmc yices, depth 72 (no bus copy). Deepest covers: n = 32
+#         DRIVE / EXCHANGE, 2 cycles per bit (launch and capture never share
+#         a cycle) = 64, plus reset, park, promotion and the completion
+#         cycle: step 67-68; field.md 10.1 needs step 36. 72 is that plus
+#         margin. All covers must be reached (cover PASS).
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+prove_e2e
+bmc
+cover
+
+[options]
+prove: mode prove
+prove_e2e: mode prove
+prove_e2e: depth 3
+bmc: mode bmc
+bmc: depth 12
+cover: mode cover
+cover: depth 72
+
+[engines]
+prove: abc pdr
+prove_e2e: smtbmc bitwuzla
+bmc: abc bmc3
+cover: smtbmc yices
+
+[script]
+prove: read -define FV_NO_HARD
+prove_e2e: read -define FV_STAGE_B
+prove_e2e: read -define FV_NO_BUS
+cover: read -define FV_NO_BUS
+read_verilog -sv -formal rosetta_field.sv
+read_verilog -sv -formal field_model.sv
+read_verilog -sv -formal field_props.sv
+read_verilog -sv -formal field_fv.sv
+prep -top field_fv

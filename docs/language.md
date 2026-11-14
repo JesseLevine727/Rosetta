@@ -1,14 +1,12 @@
 # Rosetta description language
 
-> **Status: provisional (13 Nov).** Drafted by a worker, reviewed by the
-> overseer, **not yet approved by the owner**. The hardware gaps listed in
+> **Status: approved by the owner on 14 Nov 2026.** Approved: (1) the core
+> syntax (sections 2, 3 and 5.1) as the rung-1 language, (2) the host view of
+> section 3.15, (3) the direction of the section 4 extensions for USB and
+> Ethernet, to be written when rung 2 starts. The hardware gaps listed in
 > section 6.2 were answered in `docs/isa.md` v0.2 section 7; section 6 here
-> still describes the architecture as it was before those fixes.
-
-Status: **proposal for owner review** (draft 0.1, 13 Nov 2026). Not approved,
-nothing implemented. It builds on `docs/architecture.md` (approved) and
-`docs/isa.md` (draft v0.1). References such as "arch §4.1" and "isa §3.1"
-point into those two documents.
+> still describes the architecture as it was before those fixes. Where this
+> document and `docs/decisions.md` disagree, `decisions.md` wins.
 
 Contents: 1 goals · 2 the language by example (UART, SPI, I2C) · 3 the
 constructs · 4 USB and Ethernet sketches · 5 grammar · 6 hardware mapping and

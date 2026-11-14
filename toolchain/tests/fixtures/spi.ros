@@ -1,0 +1,34 @@
+// SPI, modes 0-3 (mode = 2 * cpol + cpha), one target on one chip select.
+protocol spi {
+  param sck_rate  = 1 MHz
+  param cpol      : 0..1  = 0             // level of sck when idle
+  param cpha      : 0..1  = 0             // 0: sample on the leading edge
+  param word_size : 1..32 = 8             // bits per word
+
+  parties controller, target
+
+  wire sck  by controller idle cpol
+  wire cs_n by controller idle high
+  wire mosi by controller idle low
+  wire miso by target     idle released
+
+  clock sck by controller rate sck_rate capture (cpha == 0 ? leading : trailing)
+
+  event select   = cs_n falls by controller
+  event deselect = cs_n rises by controller
+
+  frame transfer after select until deselect {
+    repeat {
+      together {
+        controller mosi_data[word_size] msb on mosi
+        target     miso_data[word_size] msb on miso default 0
+      }
+    }
+  }
+
+  rule cs_lead : select to sck changes >= 0.5 bit
+  rule cs_lag  : sck changes to deselect >= 0.5 bit
+  rule cs_idle : deselect to select >= 1 bit
+  rule mosi_su : mosi setup to capture >= 10 ns
+  rule miso_su : miso setup to capture >= 10 ns
+}

@@ -1,0 +1,9 @@
+protocol x {
+  parties a, b
+  wire w by a
+  clock rate 1 MHz
+  rule r : low w == 3 us
+  frame f {
+    a d[1]
+  }
+}

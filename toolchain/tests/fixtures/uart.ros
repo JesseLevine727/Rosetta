@@ -1,0 +1,22 @@
+// UART, one direction: 8 data bits, optional parity, 1 stop bit.
+// A full-duplex port is two instances of this, one per direction.
+protocol uart {
+  param baud   = 115200 Hz
+  param parity : none | even | odd = none
+
+  parties sender, receiver
+
+  wire  tx by sender idle high
+  clock rate baud tolerance 2%
+
+  frame character {
+    sender start_bit[1] = 0
+    sender data[8] lsb
+    if parity == even {
+      sender parity_bit[1] = even_parity(data) else continue
+    } else if parity == odd {
+      sender parity_bit[1] = odd_parity(data) else continue
+    }
+    sender stop_bit[1] = 1
+  }
+}

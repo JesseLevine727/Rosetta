@@ -1,0 +1,43 @@
+// Low-speed USB (1.5 Mbit/s) packets and transactions. SKETCH: [ext] marks
+// constructs that are not in the core language.
+protocol usb_ls {
+  param address = 0 runtime                           // [ext] host updates it after SET_ADDRESS
+
+  parties host, device
+
+  wire  d diff (dm, dp) idle high coding nrzi        // level = D-, so J = 1 at low speed
+  clock rate 1.5 MHz tolerance 1.5%
+  stuff zero after 6 ones over sync .. crc16
+
+  event eop = dm, dp both low for 1 bit .. 2 bit by any     // [ext] any: whoever sent the packet
+
+  frame packet(sender) until eop {                     // [ext] party parameter
+    sender sync[8] lsb = 0x80 seek                     // [ext] seek
+    sender pid[4] lsb (OUT = 0x1, IN = 0x9, SETUP = 0xD, DATA0 = 0x3,
+                       DATA1 = 0xB, ACK = 0x2, NAK = 0xA, STALL = 0xE)
+    sender pid_check[4] lsb = ~pid
+    if pid == OUT or pid == IN or pid == SETUP {
+      sender addr[7] lsb
+      sender endp[4] lsb
+      sender crc5[5] lsb = crc5_usb(addr, endp)
+    } else if pid == DATA0 or pid == DATA1 {
+      repeat { sender data[8] lsb }
+      sender crc16[16] lsb = crc16_usb(data)          // [ext] fixed field after an open repeat
+    }
+  }
+
+  frame transaction {
+    packet(host)                                       // [ext] use: token
+    if pid == IN {
+      packet(device) when addr == address              // DATA0/1, NAK or STALL
+      if pid == DATA0 or pid == DATA1 {
+        packet(host)                                   // ACK
+      }
+    } else {
+      packet(host)                                     // DATA0/1 after SETUP or OUT
+      packet(device) when addr == address              // ACK, NAK or STALL
+    }
+  }
+
+  rule turnaround : eop to d changes <= 7.5 bit
+}

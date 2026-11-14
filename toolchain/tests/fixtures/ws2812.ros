@@ -1,0 +1,18 @@
+// WS2812 LED strip: pulse-width symbols, one-way.
+protocol ws2812 {
+  param leds = 8
+
+  parties controller, strip
+
+  wire din by controller idle low
+  clock symbols tolerance 150 ns {
+    0 = high 0.40 us, low 0.85 us
+    1 = high 0.80 us, low 0.45 us
+  }
+
+  event latch = din low for 50 us by controller
+
+  frame update until latch {
+    repeat leds { controller grb[24] msb }
+  }
+}

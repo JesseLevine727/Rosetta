@@ -1,0 +1,21 @@
+// 10BASE-T framing, one direction. SKETCH: [ext] marks non-core constructs.
+protocol eth10 {
+  parties sender, receiver
+
+  wire  pair diff (p, n) by sender idle released coding manchester
+  clock rate 10 MHz tolerance 0.01%
+
+  event tp_idl = pair high for 150 ns .. 300 ns by sender  // TP_IDL
+
+  frame packet until tp_idl {
+    repeat 7 { sender preamble[8] lsb = 0x55 }
+    sender sfd[8] lsb = 0xD5 seek                       // [ext]
+    sender dest[48] net                                 // [ext] network byte order
+    sender src[48] net
+    sender ethertype[16] net
+    repeat { sender payload[8] lsb }
+    sender fcs[32] lsb = crc32_ethernet(dest .. payload)   // [ext] trailing field
+  }
+
+  rule ifg : tp_idl to pair changes >= 9.6 us
+}

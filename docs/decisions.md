@@ -82,6 +82,14 @@ Rulings on coding.md ambiguities (they amend coding.md):
 | 47 | 3.2, 4.2, 4.3 vs 4.4 | In a same-cycle collision the clearing action wins: a `CODE` or `TICK` write sets `mph` to 1 over a Manchester sample; abort or a write clears `hp` over `tx_go_i`; a `PIN` write of `out0` sets `tl_q` over a request. A release clears `hp` only. |
 | 48 | 4.2, 5.8 | `dreq_o` is gated by `run_i` only; same-cycle requests have priority wire bit, release, `RAW DRIVE`, second change. `dreq_dly_o` is 0 exactly for `RAW DRIVE` requests and 1 otherwise. `dpay_o` is unspecified when `dreq_o` is 0. |
 
+Rulings from the field proofs:
+
+| # | Topic | Ruling |
+|---|---|---|
+| 49 | `seek` in `BAUD` timing | Not allowed; the compiler rejects it (this replaces ruling 28). Reason: a `BAUD` seek launches one bit beyond its match, and that bit's sample can still be pending when the next field starts, which then sends or takes one wrong bit. `seek` is only needed where the far end supplies the timing (`PULSE`, `RECOVER`, `EDGE`), where the problem does not arise. The hardware is unchanged; the field proofs make no end-to-end claim for a field that follows a `BAUD` seek. |
+| 50 | Tick properties the field relies on | The tick block must also prove: `lt` and `ct` never in one cycle; in `BAUD` timing `lt` only with `launch_req`; `st = ct` outside `BAUD` timing and `st = ct && cu_smp` with `stretch_honour`; in `BAUD` timing a `ct` needs an `lt` since the last `ct`. |
+| 51 | Result destination | The field guarantees only that `res_dst_o` is not `NONE`; the other excluded codes are instruction-level and belong to the sequencer (ruling 13). |
+
 Known risks, not rulings: Ethernet receive has about half a cycle of
 jitter margin with single-edge sampling (decide on the FPGA whether to
 sample on both clock edges); a USB bus reset is timed by software.

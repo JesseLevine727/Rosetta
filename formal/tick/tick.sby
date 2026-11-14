@@ -1,0 +1,74 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_tick (tick.md sections 1-8, 10, 11).
+#      cd formal/tick && sby -f tick.sby [prove|bmc|cover]
+#  Keep run directories out of the tree, e.g.
+#      sby -f -d ref/build/tick_prove tick.sby prove
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_tick.sv ref/rosetta_tick.sv
+# ============================================================================
+[files]
+rosetta_tick.sv ../../src/rosetta_tick.sv
+tick_props.sv
+tick_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded (abc pdr) for the main instance (u_dut + u_props: exact
+#         model on every output in every cycle + all required properties),
+#         on a reduced, still symbolic parameter range:
+#           PERIOD, PERIOD2 in 0..7 (Pd, P2d 1..7; RECOVER Pr 2..7, H 1..3);
+#           ot_n in 0..7 (W 0..7, raw N 1..7, so W*Pd up to 49 strobes);
+#           every prescale (1, 8, 64, 512); THR0, PULSE widths, launch delay
+#           and all other inputs full range; the edge interval counter at
+#           its full 16 bits including saturation.
+#         Unbounded in time: any number of bits, holds, honour waits and
+#         postponements of any length (the 16-bit phase counter saturates).
+#         NOT covered by prove: PERIOD/PERIOD2 >= 8 and ot_n >= 8. Those use
+#         the same compare/count logic at full width and are checked by bmc
+#         (no range assumption) up to its depth only. (At 0..15 abc pdr did
+#         not converge on the model checks within 30 minutes.)
+#         Property 14 is proved in its cycle-aligned form (a_p14_once); the
+#         look-ahead form (a_p14_done/none, independent of the spec
+#         prescaler) is checked by bmc only (TICK_NO_P14_LOOKAHEAD in prove).
+#         The scripted 11.1/11.2 instances and the free-initial-state edge
+#         counter instance are left out of prove (FV_NO_WORKED, FV_NO_FI):
+#         the scripted ones are deterministic and end in a quiescent state
+#         by cycle 25 (< bmc depth), and the free-init one checks a one-step
+#         property from every state, so bmc covers both completely.
+#  bmc    every instance, full parameter range (TICK_PBITS = TICK_OBITS =
+#         16), depth 32. Depth argument: the 11.1 table ends at k = 25
+#         (cycle 22 + reset + margin) and 11.2 at k = 15; a BAUD bit at
+#         Pd = P2d = 13 with its 4-cycle sample and a hold fits in 32; every
+#         window property spans at most 5 cycles (rsh/ssh, $past); the free-
+#         init instance starts in any state, so step 1 already checks every
+#         edge-counter transition (saturation included). bmc is the cross-
+#         check without the range assumption; the proof is `prove`.
+#  cover  depth 40: the deepest covers are the 11.1 table end (k = 25), the
+#         honour wait > 10 cycles to a stop, and the W = 2 timer at
+#         prescale 8.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+bmc: mode bmc
+bmc: depth 32
+cover: mode cover
+cover: depth 40
+
+[engines]
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+prove: read -define TICK_PBITS=3 TICK_OBITS=3 FV_NO_WORKED FV_NO_FI TICK_NO_P14_LOOKAHEAD
+read -formal rosetta_tick.sv
+read -formal tick_props.sv
+read -formal tick_fv.sv
+prep -top tick_fv

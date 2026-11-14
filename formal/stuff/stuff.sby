@@ -1,4 +1,4 @@
-# SymbiYosys job for rosetta_stuff.  Run from formal/stuff/:
+# SymbiYosys job for rosetta_stuff (spec v2).  Run from formal/stuff/:
 #     sby -f stuff.sby            (all tasks)
 #     sby -f stuff.sby prove      (one task: prove | bmc | cover)
 #
@@ -19,13 +19,13 @@ cover
 [options]
 prove: mode prove
 # BMC depth 24 -- supplementary only; the unbounded result is `prove`.
-# Depth argument: in the stand-alone part every reachable state of the
-# spec model (run 0-7, last, history, violation) is reached within 9 cycles
-# of reset (1 reset + 7 equal bits + 1 violating bit). The round-trip part
-# adds a 2-entry wire, so B lags A by at most 2 bits plus the 1-cycle frame
-# handshake; the deepest cover (watched bit delivered after an N = 7 stuff
-# bit) is reached at step 11. 24 cycles hold two complete N = 7 frames back
-# to back. Cover depth 24 is likewise twice the deepest cover.
+# Depth argument (spec v2): in the stand-alone part every reachable state
+# of the spec model (run 0-7, last, viol) is reached within 9 cycles of
+# reset (1 reset + 7 equal bits + 1 violating bit). The round-trip part adds
+# a 2-entry wire, a per-frame cfg and the clear handshake, so B lags A by at
+# most 2 bits plus one cycle. The deepest cover is the full N = 7 run after a
+# violation (reset + 7 bits + violating bit + 6 bits + 1): step 16. Depth 24
+# is that plus a margin of a further N = 7 run; cover depth is the same.
 bmc: mode bmc
 bmc: depth 24
 cover: mode cover

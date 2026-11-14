@@ -4,15 +4,18 @@
 //
 //  stuff_fv contains two independent proof problems sharing clk and rst_n:
 //
-//   u_single   one rosetta_stuff with every input free, checked by
-//              stuff_props (exact behaviour, violation, clear, disabled,
-//              reset).
+//   u_dut      one rosetta_stuff with every input free (cfg changes only in
+//              reset or with clear_i), checked by stuff_props (exact
+//              behaviour, violation, single pulse, restart after violation,
+//              clear, disabled incl. EQUAL N = 1, reset).
 //   u_rt       round-trip harness (stuff_rt_harness): free data source,
 //              transmitter using instance A, a wire with independent timing
-//              on each side, receiver using instance B, checked by
-//              stuff_rt_props (round trip, no violation, max run on wire).
+//              on each side, receiver using instance B, a new free cfg per
+//              frame, checked by stuff_rt_props (round trip, progress, no
+//              violation, max run on the wire).
 //
 //  rst_n is low in the first cycle (assumed in stuff_props) and free after.
+//  Spec v2.
 // ===========================================================================
 
 module stuff_fv (
@@ -42,7 +45,9 @@ module stuff_fv (
         .violation_o  (violation_o)
     );
 
-    stuff_props #(.STANDALONE(1)) u_props (
+    // CFG_CYCLE_CHECK(1): outputs are also checked in a clear cycle in which
+    // cfg changes (spec v2 text). Use 0 to leave those cycles unchecked.
+    stuff_props #(.STANDALONE(1), .CFG_CYCLE_CHECK(1)) u_props (
         .clk          (clk),
         .rst_n        (rst_n),
         .cfg_en_i     (cfg_en_i),
@@ -80,7 +85,10 @@ endmodule
 //  frames      : clr_req starts a new frame when the wire is empty: A clears
 //                at once, B clears later (free rx_clr_go) before taking any
 //                bit of the new frame.
-//  cfg         : constant, free (all values: enable, N = 0-7, both modes).
+//  cfg         : free (all values: enable, N = 0-7, both modes), chosen per
+//                frame: A takes a new cfg in reset or in its clear cycle, B
+//                takes the same cfg in its own clear cycle (spec v2: cfg
+//                changes only in reset or with clear_i).
 // ===========================================================================
 module stuff_rt_harness (
     input wire clk,
@@ -88,9 +96,7 @@ module stuff_rt_harness (
 );
     localparam DEPTH = 2;
 
-    (* anyconst *) wire       cfg_en;
-    (* anyconst *) wire [2:0] cfg_n;
-    (* anyconst *) wire       cfg_mode;
+    (* anyseq *) wire [4:0] cfg_new;   // {en, n[2:0], mode} for a new frame
 
     (* anyseq *) wire src_bit;
     (* anyseq *) wire tx_go;
@@ -114,6 +120,17 @@ module stuff_rt_harness (
     wire b_valid = rx_go && !pend && (cnt != 2'd0);
     wire b_bit   = fb[0];
 
+    // per-side cfg: A changes in reset or its clear cycle; B adopts A's
+    // (frame) cfg in its own clear cycle. A cannot clear again while B has
+    // not cleared, so A's cfg is the frame cfg while pend is set.
+    logic [4:0] a_cfg_q, b_cfg_q;
+    wire  [4:0] a_cfg = (!rst_n || a_clear) ? cfg_new : a_cfg_q;
+    wire  [4:0] b_cfg = !rst_n ? a_cfg : (b_clear ? a_cfg : b_cfg_q);
+    always @(posedge clk) begin
+        a_cfg_q <= a_cfg;
+        b_cfg_q <= b_cfg;
+    end
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             cnt  <= 2'd0;
@@ -134,9 +151,9 @@ module stuff_rt_harness (
     rosetta_stuff u_a (
         .clk          (clk),
         .rst_n        (rst_n),
-        .cfg_en_i     (cfg_en),
-        .cfg_n_i      (cfg_n),
-        .cfg_mode_i   (cfg_mode),
+        .cfg_en_i     (a_cfg[4]),
+        .cfg_n_i      (a_cfg[3:1]),
+        .cfg_mode_i   (a_cfg[0]),
         .clear_i      (a_clear),
         .bit_valid_i  (a_valid),
         .bit_i        (a_bit),
@@ -148,9 +165,9 @@ module stuff_rt_harness (
     rosetta_stuff u_b (
         .clk          (clk),
         .rst_n        (rst_n),
-        .cfg_en_i     (cfg_en),
-        .cfg_n_i      (cfg_n),
-        .cfg_mode_i   (cfg_mode),
+        .cfg_en_i     (b_cfg[4]),
+        .cfg_n_i      (b_cfg[3:1]),
+        .cfg_mode_i   (b_cfg[0]),
         .clear_i      (b_clear),
         .bit_valid_i  (b_valid),
         .bit_i        (b_bit),
@@ -162,15 +179,18 @@ module stuff_rt_harness (
     stuff_rt_props #(.DEPTH(DEPTH)) u_rt_props (
         .clk            (clk),
         .rst_n          (rst_n),
-        .cfg_en_i       (cfg_en),
-        .cfg_n_i        (cfg_n),
-        .cfg_mode_i     (cfg_mode),
+        .a_cfg_en_i     (a_cfg[4]),
+        .a_cfg_n_i      (a_cfg[3:1]),
+        .a_cfg_mode_i   (a_cfg[0]),
         .a_clear_i      (a_clear),
         .a_bit_valid_i  (a_valid),
         .a_bit_i        (a_bit),
         .a_stuff_next_o (a_sn),
         .a_stuff_bit_o  (a_sb),
         .a_violation_o  (a_viol),
+        .b_cfg_en_i     (b_cfg[4]),
+        .b_cfg_n_i      (b_cfg[3:1]),
+        .b_cfg_mode_i   (b_cfg[0]),
         .b_clear_i      (b_clear),
         .b_bit_valid_i  (b_valid),
         .b_bit_i        (b_bit),

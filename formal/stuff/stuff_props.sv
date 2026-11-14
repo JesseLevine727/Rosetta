@@ -1,6 +1,6 @@
 `default_nettype none
 // ===========================================================================
-//  Formal properties for rosetta_stuff (bit stuffing).
+//  Formal properties for rosetta_stuff (bit stuffing), spec v2.
 //
 //  Written from docs/blocks/stuff.md ONLY (the RTL was not read). Every
 //  property is about the block's ports.
@@ -8,41 +8,44 @@
 //  Two checker modules:
 //
 //    stuff_props     one instance, free inputs. An executable model of the
-//                    "Behaviour" section (run, last, history) is driven from
-//                    the input ports, and every output is compared with it
-//                    every cycle. That covers required properties 3 and 4
-//                    and the exact cycle behaviour; property 3 and the reset,
-//                    clear and disabled rules are also stated directly on the
-//                    ports, without the model.
+//                    "Behaviour" section (run, last, viol) is driven from the
+//                    input ports, and every output is compared with it every
+//                    cycle (required properties 3, 4, 5 and the exact cycle
+//                    behaviour). Properties 3, 4 and 5 are also stated
+//                    directly on the ports, without the model.
 //
 //    stuff_rt_props  a transmitter instance A and a receiver instance B joined
 //                    by a lossless, order-preserving wire with independent
-//                    timing on each side (built in stuff_fv.sv). Covers
-//                    required properties 1 (max run on the wire) and 2
-//                    (round trip, no violation on a legal stream). Round trip
-//                    is proved with a symbolic watched data bit, so the proof
-//                    is unbounded.
+//                    timing on each side (built in stuff_fv.sv). Required
+//                    properties 1 (max run on the wire) and 2 (round trip,
+//                    progress, no violation on a legal stream). Round trip is
+//                    proved with a symbolic watched data bit, so the proof is
+//                    unbounded.
 //
-//  Environment (conventions.md): rst_n low in the first cycle; cfg_* stable
-//  (we assume constant over the whole trace). rst_n is free afterwards, so
-//  resets in the middle of a trace are also checked.
+//  Environment: rst_n low in the first cycle and free afterwards (resets in
+//  the middle of a trace are checked too); cfg_* change only in a cycle with
+//  rst_n low or clear_i high (spec v2, "Behaviour").
 //
-//  Spec reading that matters (see the spec-issue list in the report):
-//   * stuff_bit_o is checked only while stuff_next_o = 1 (ports table:
-//     "meaningful when stuff_next_o"); the Behaviour section's formula is
-//     not enforced at other times.
-//   * Outputs are compared with the model including cycles where rst_n is
-//     low (asynchronous reset: outputs are 0 during reset).
-//   * Run counter saturates at 7 exactly as written; this makes N = 7 behave
-//     differently from N < 7 after a violation (two cycles of violation_o in
-//     a row are possible only for N = 7). Properties follow the spec text.
+//  Spec reading that matters:
+//   * stuff_bit_o is checked only while stuff_next_o = 1.
+//   * Outputs are combinational functions of (run, last, viol) and the
+//     CURRENT cfg_* inputs (spec v2). So in a clear cycle in which cfg
+//     changes, stuff_next_o / violation_o follow the new cfg and the old
+//     state. Set CFG_CYCLE_CHECK = 0 to skip the output checks in exactly
+//     those cycles (see the report: an implementation with a registered
+//     stuff_next_o differs only there).
+//   * The reset value of last (0) is not observable at the ports and is not
+//     checked.
 // ===========================================================================
 
 module stuff_props #(
     // 1: stand-alone proof (environment rules are assumed, covers active).
     // 0: monitor inside a larger proof (environment rules are asserted,
     //    covers off).
-    parameter STANDALONE = 1
+    parameter STANDALONE      = 1,
+    // 1: check outputs also in a cycle where cfg_* changed (spec v2 text).
+    // 0: do not check outputs in such cycles.
+    parameter CFG_CYCLE_CHECK = 1
 ) (
     input wire       clk,
     input wire       rst_n,
@@ -56,75 +59,71 @@ module stuff_props #(
     input wire       stuff_bit_o,
     input wire       violation_o
 );
+    localparam ONES  = 1'b0;
+    localparam EQUAL = 1'b1;
+
+    // cfg of the previous cycle; f_chg = cfg differs from the previous cycle
+    logic [4:0] p_cfg;
+    always @(posedge clk) p_cfg <= {cfg_en_i, cfg_n_i, cfg_mode_i};
+    wire f_chg = !$initstate && ({cfg_en_i, cfg_n_i, cfg_mode_i} != p_cfg);
+    wire chk   = (CFG_CYCLE_CHECK != 0) || !f_chg || !rst_n;
 
     // ---------------------------------------------------------------------
     // Environment
     // ---------------------------------------------------------------------
+    wire env_cfg_ok = !f_chg || !rst_n || clear_i;
     generate
         if (STANDALONE) begin : g_env_assume
             always @* begin
                 if ($initstate) begin
                     env_rst: assume (!rst_n);
                 end
-            end
-            always @(posedge clk) begin
-                if (!$initstate) begin
-                    env_cfg: assume (cfg_en_i   == $past(cfg_en_i)  &&
-                                     cfg_n_i    == $past(cfg_n_i)   &&
-                                     cfg_mode_i == $past(cfg_mode_i));
-                end
+                env_cfg: assume (env_cfg_ok);
             end
         end else begin : g_env_assert
             always @* begin
                 if ($initstate) begin
                     env_rst: assert (!rst_n);
                 end
-            end
-            always @(posedge clk) begin
-                if (!$initstate) begin
-                    env_cfg: assert (cfg_en_i   == $past(cfg_en_i)  &&
-                                     cfg_n_i    == $past(cfg_n_i)   &&
-                                     cfg_mode_i == $past(cfg_mode_i));
-                end
+                env_cfg: assert (env_cfg_ok);
             end
         end
     endgenerate
 
     // ---------------------------------------------------------------------
-    // Executable model of "Behaviour" (state: run 0-7, last, history)
+    // Executable model of "Behaviour" (state: run 0-7, last, viol)
     // ---------------------------------------------------------------------
-    localparam ONES  = 1'b0;
-    localparam EQUAL = 1'b1;
-
     logic [2:0] m_run;
     logic       m_last;
-    logic       m_hist;
     logic       m_viol;
 
-    wire       m_on    = cfg_en_i && (cfg_n_i != 3'd0);
-    wire       m_sn    = m_on && (m_run == cfg_n_i);           // stuff_next_o
-    wire       m_sb    = (cfg_mode_i == EQUAL) ? ~m_last : 1'b0; // stuff_bit_o
-    wire [2:0] m_inc   = (m_run == 3'd7) ? 3'd7 : m_run + 3'd1; // saturating
-    wire       m_take  = bit_valid_i && !clear_i;               // clear wins
+    wire       m_active = cfg_en_i && (cfg_n_i != 3'd0) &&
+                          !(cfg_mode_i == EQUAL && cfg_n_i == 3'd1);
+    wire       m_sn     = m_active && (m_run == cfg_n_i);            // stuff_next_o
+    wire       m_sb     = (cfg_mode_i == EQUAL) ? ~m_last : 1'b0;  // stuff_bit_o
+    wire       m_vo     = m_viol && m_active;                      // violation_o
+    wire       m_bad    = m_sn && (bit_i != m_sb);
+    wire [2:0] m_inc    = (m_run == 3'd7) ? 3'd7 : m_run + 3'd1;
+    wire       m_take   = bit_valid_i && !clear_i;                 // clear wins
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             m_run  <= 3'd0;
             m_last <= 1'b0;
-            m_hist <= 1'b0;
             m_viol <= 1'b0;
         end else if (clear_i) begin
             m_run  <= 3'd0;
-            m_hist <= 1'b0;
             m_viol <= 1'b0;
         end else if (bit_valid_i) begin
-            m_viol <= m_sn && (bit_i != m_sb);
-            if (cfg_mode_i == ONES) begin
+            m_viol <= m_bad;
+            if (m_bad) begin
+                m_run <= 3'd1;
+                if (cfg_mode_i == EQUAL) m_last <= bit_i;
+            end else if (cfg_mode_i == ONES) begin
                 m_run <= bit_i ? m_inc : 3'd0;
             end else begin
-                m_run  <= (m_hist && bit_i == m_last) ? m_inc : 3'd1;
+                m_run  <= (m_run != 3'd0 && bit_i == m_last) ? m_inc : 3'd1;
                 m_last <= bit_i;
-                m_hist <= 1'b1;
             end
         end else begin
             m_viol <= 1'b0;
@@ -135,76 +134,85 @@ module stuff_props #(
     // Exact behaviour: outputs equal the model in every cycle
     // ---------------------------------------------------------------------
     always @* begin
-        a_sn_exact:   assert (stuff_next_o == m_sn);
-        a_viol_exact: assert (violation_o  == m_viol);
-        if (m_sn) begin
-            a_sb_exact: assert (stuff_bit_o == m_sb);
+        if (chk) begin
+            a_sn_exact:   assert (stuff_next_o == m_sn);
+            a_viol_exact: assert (violation_o  == m_vo);
+            if (m_sn) begin
+                a_sb_exact: assert (stuff_bit_o == m_sb);
+            end
         end
     end
 
     // ---------------------------------------------------------------------
-    // Required property 4: reset values, clear priority, disabled behaviour
-    // (stated directly on the ports; redundant with the model on purpose)
+    // Port-level statements (no model)
     // ---------------------------------------------------------------------
+    wire p_active   = cfg_en_i && (cfg_n_i != 3'd0) &&
+                      !(cfg_mode_i == EQUAL && cfg_n_i == 3'd1);
+    wire p_bad      = rst_n && bit_valid_i && !clear_i && stuff_next_o &&
+                      (bit_i != stuff_bit_o);
+    logic p_bad_q;   // p_bad one cycle earlier
+    always @(posedge clk) p_bad_q <= p_bad;
+
+    // Property 4: reset values (asynchronous), disabled behaviour incl.
+    // EQUAL with N = 1
     always @* begin
         if (!rst_n) begin
             a_rst_sn:   assert (!stuff_next_o);
             a_rst_viol: assert (!violation_o);
         end
-        if (!(cfg_en_i && cfg_n_i != 3'd0)) begin
+        if (chk && !p_active) begin
             a_dis_sn:   assert (!stuff_next_o);
             a_dis_viol: assert (!violation_o);
         end
-        if (stuff_next_o && cfg_mode_i == ONES) begin
+        if (chk && stuff_next_o && cfg_mode_i == ONES) begin
             a_ones_sb0: assert (stuff_bit_o == 1'b0);
         end
     end
 
     always @(posedge clk) begin
         if (!$initstate && rst_n) begin
-            // first cycle after reset release
+            // Property 4: first cycle after reset release
             if (!$past(rst_n)) begin
                 a_rel_sn:   assert (!stuff_next_o);
                 a_rel_viol: assert (!violation_o);
             end
-            // clear_i wins over bit_valid_i and forgets history
+            // Property 4: clear_i wins over bit_valid_i and forgets history
             if ($past(rst_n) && $past(clear_i)) begin
                 a_clr_sn:   assert (!stuff_next_o);
                 a_clr_viol: assert (!violation_o);
             end
-            // Required property 3, stated on the ports only: violation_o is
-            // 1 exactly in the cycle after a wire bit arrived at a stuff
-            // position with the wrong value.
-            a_viol_port: assert (violation_o ==
-                ($past(rst_n) && $past(bit_valid_i) && !$past(clear_i) &&
-                 $past(stuff_next_o) && ($past(bit_i) != $past(stuff_bit_o))));
-            // no bit, no clear: state holds, no violation
-            if ($past(rst_n) && !$past(clear_i) && !$past(bit_valid_i)) begin
-                a_idle_sn:   assert (stuff_next_o == $past(stuff_next_o));
-                a_idle_viol: assert (!violation_o);
-                if (stuff_next_o) begin
-                    a_idle_sb: assert (stuff_bit_o == $past(stuff_bit_o));
+            // Property 3: violation_o is 1 exactly in the cycle after a wire
+            // bit arrived at a stuff position with the wrong value
+            if (chk) begin
+                a_viol_port: assert (violation_o == ($past(p_bad) && p_active));
+            end
+            if (!f_chg) begin
+                // no bit, no clear: state holds, no violation
+                if ($past(rst_n) && !$past(clear_i) && !$past(bit_valid_i)) begin
+                    a_idle_sn:   assert (stuff_next_o == $past(stuff_next_o));
+                    a_idle_viol: assert (!violation_o);
+                    if (stuff_next_o) begin
+                        a_idle_sb: assert (stuff_bit_o == $past(stuff_bit_o));
+                    end
+                end
+                // Property 2 (progress), block level: a correct stuff bit is
+                // never followed by another stuff request
+                if ($past(rst_n && m_take && stuff_next_o && bit_i == stuff_bit_o)) begin
+                    a_stuff_then_data: assert (!stuff_next_o);
+                end
+                // Property 5: after a violating bit the run is 1, so the next
+                // stuff request comes at once only if N = 1 (ONES)
+                if ($past(p_bad)) begin
+                    a_viol_restart: assert (stuff_next_o ==
+                        (p_active && cfg_mode_i == ONES && cfg_n_i == 3'd1));
+                end
+                // Property 5: violation_o two cycles in a row only for two
+                // consecutive violating bits, which needs ONES with N = 1
+                if (violation_o && $past(violation_o)) begin
+                    a_viol_single: assert ($past(p_bad) && $past(p_bad_q));
+                    a_viol_b2b_n1: assert (cfg_mode_i == ONES && cfg_n_i == 3'd1);
                 end
             end
-            // a correct stuff bit is never demanded twice in a row, except in
-            // EQUAL mode with N = 1 (spec issue: the stuff bit itself is a run
-            // of length 1 = N, so stuffing never ends)
-            if ($past(rst_n) && $past(m_take) && $past(stuff_next_o) &&
-                ($past(bit_i) == $past(stuff_bit_o)) &&
-                !(cfg_mode_i == EQUAL && cfg_n_i == 3'd1)) begin
-                a_stuff_then_data: assert (!stuff_next_o);
-            end
-            // back-to-back violations only possible for N = 7 (saturation)
-            if (violation_o && $past(violation_o)) begin
-                a_viol_b2b_n7: assert (cfg_n_i == 3'd7);
-            end
-        end
-    end
-
-    // model sanity: in EQUAL mode "history" is exactly run != 0
-    always @* begin
-        if (cfg_mode_i == EQUAL) begin
-            a_model_hist: assert (m_hist == (m_run != 3'd0));
         end
     end
 
@@ -212,11 +220,19 @@ module stuff_props #(
     // Covers (stand-alone only)
     // ---------------------------------------------------------------------
     logic f_clr_mid;   // a clear happened while a run was partly built
+    logic f_viol;      // a violation in this frame
+    logic f_cfgchg;    // cfg changed in a clear cycle at some point
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
+        if (!rst_n) begin
             f_clr_mid <= 1'b0;
-        else if (clear_i && m_on && m_run != 3'd0 && !m_sn)
-            f_clr_mid <= 1'b1;
+            f_viol    <= 1'b0;
+            f_cfgchg  <= 1'b0;
+        end else begin
+            if (clear_i && m_active && m_run != 3'd0 && !m_sn) f_clr_mid <= 1'b1;
+            if (clear_i)          f_viol <= 1'b0;
+            else if (violation_o) f_viol <= 1'b1;
+            if (clear_i && f_chg) f_cfgchg <= 1'b1;
+        end
     end
 
     generate
@@ -231,26 +247,34 @@ module stuff_props #(
                                             $past(m_take && stuff_next_o && bit_i == stuff_bit_o && !bit_i));
                     c_stuff_ok_eq1:  cover (rst_n && $past(rst_n) && cfg_mode_i == EQUAL &&
                                             $past(m_take && stuff_next_o && bit_i == stuff_bit_o && bit_i));
-                    // violation detected, each mode, and back to back (N = 7)
-                    c_viol_ones:   cover (violation_o && cfg_mode_i == ONES);
-                    c_viol_eq:     cover (violation_o && cfg_mode_i == EQUAL);
-                    c_viol_b2b:    cover (violation_o && $past(violation_o));
                     // clear while a stuff bit is pending; clear together with a bit
                     c_clr_pending: cover (rst_n && clear_i && stuff_next_o);
-                    c_clr_and_bit: cover (rst_n && clear_i && bit_valid_i && m_on &&
+                    c_clr_and_bit: cover (rst_n && clear_i && bit_valid_i && m_active &&
                                           m_run != 3'd0 && !m_sn);
-                    // clear mid-run, then a full new run up to a stuff request
-                    c_clr_mid_then_stuff: cover (f_clr_mid && stuff_next_o && cfg_n_i == 3'd3);
                     // idle cycles while a stuff bit is pending
                     c_idle_pending: cover (rst_n && stuff_next_o && $past(stuff_next_o) &&
                                            $past(!bit_valid_i && !clear_i && rst_n));
-                    // saturation after a violation (N < 7)
-                    c_saturate:    cover (m_on && m_run == 3'd7 && cfg_n_i == 3'd2);
+                    // cfg changes: in reset, in a clear cycle, and the clear-cycle
+                    // outputs following the new cfg
+                    c_cfg_chg_rst:   cover (!rst_n && f_chg);
+                    c_cfg_chg_clr:   cover (rst_n && clear_i && f_chg);
+                    c_cfg_chg_sn:    cover (rst_n && clear_i && f_chg && stuff_next_o);
                 end
-                // N = 1 and N = 7 in each mode
+                // violation detected, each mode; back to back (ONES, N = 1)
+                c_viol_ones:   cover (violation_o && cfg_mode_i == ONES);
+                c_viol_eq:     cover (violation_o && cfg_mode_i == EQUAL);
+                c_viol_b2b:    cover (violation_o && p_bad);   // next cycle high too
+                // after a violation the run restarts: a full N = 7 run after it
+                c_viol_restart_ones: cover (f_viol && stuff_next_o && cfg_mode_i == ONES  && cfg_n_i == 3'd7);
+                c_viol_restart_eq:   cover (f_viol && stuff_next_o && cfg_mode_i == EQUAL && cfg_n_i == 3'd7);
+                // clear mid-run, then a full new run up to a stuff request
+                c_clr_mid_then_stuff: cover (f_clr_mid && stuff_next_o && cfg_n_i == 3'd3);
+                // new cfg after a clear, then a stuff request in the new frame
+                c_cfg_chg_then_stuff: cover (f_cfgchg && stuff_next_o);
+                // N = 1 and N = 7 (EQUAL: N = 2, the smallest active N)
                 c_ones_n1: cover (stuff_next_o && cfg_mode_i == ONES  && cfg_n_i == 3'd1);
                 c_ones_n7: cover (stuff_next_o && cfg_mode_i == ONES  && cfg_n_i == 3'd7);
-                c_eq_n1:   cover (stuff_next_o && cfg_mode_i == EQUAL && cfg_n_i == 3'd1);
+                c_eq_n2:   cover (stuff_next_o && cfg_mode_i == EQUAL && cfg_n_i == 3'd2);
                 c_eq_n7:   cover (stuff_next_o && cfg_mode_i == EQUAL && cfg_n_i == 3'd7);
                 c_usb:     cover (stuff_next_o && cfg_mode_i == ONES  && cfg_n_i == 3'd6);
                 c_hdlc:    cover (stuff_next_o && cfg_mode_i == ONES  && cfg_n_i == 3'd5);
@@ -261,6 +285,8 @@ module stuff_props #(
                 c_dis_en0_eq:   cover (rst_n && !cfg_en_i && cfg_n_i == 3'd3 &&
                                        cfg_mode_i == EQUAL && m_run == 3'd7);
                 c_dis_n0:       cover (rst_n && cfg_en_i && cfg_n_i == 3'd0 && m_run == 3'd7);
+                c_dis_eq_n1:    cover (rst_n && cfg_en_i && cfg_n_i == 3'd1 &&
+                                       cfg_mode_i == EQUAL && m_run == 3'd7);
             end
         end
     endgenerate
@@ -269,16 +295,17 @@ endmodule
 
 
 // ===========================================================================
-//  Round trip and wire run length (required properties 1 and 2).
+//  Round trip, progress and wire run length (required properties 1 and 2).
 //
-//  Observes transmitter instance A (a_*) and receiver instance B (b_*).
+//  Observes transmitter instance A (a_*) and receiver instance B (b_*), each
+//  with its own cfg (a frame's cfg reaches B when B clears into that frame).
 //  A's bit_valid_i/bit_i are the wire as transmitted; B's are the wire as
-//  received. The channel between them must be lossless and order-preserving
-//  with at most DEPTH bits in flight; frames are delimited by clear: A clears
-//  only when the wire is empty, and B clears once, after A, before it takes
-//  any bit of the new frame. These channel rules are checked (env_*).
+//  received. The channel must be lossless and order-preserving with at most
+//  DEPTH bits in flight; frames are delimited by clear: A clears only when
+//  the wire is empty, and B clears once, after A, before it takes any bit of
+//  the new frame. These harness rules are checked (env_*).
 //
-//  Data bit sent    = A takes a bit while A.stuff_next_o = 0.
+//  Data bit sent     = A takes a bit while A.stuff_next_o = 0.
 //  Data bit received = B takes a bit while B.stuff_next_o = 0.
 //  Round trip: the k-th data bit received equals the k-th data bit sent, no
 //  data bit is received that was not sent, none is lost. Checked by
@@ -290,10 +317,10 @@ module stuff_rt_props #(
 ) (
     input wire       clk,
     input wire       rst_n,
-    input wire       cfg_en_i,
-    input wire [2:0] cfg_n_i,
-    input wire       cfg_mode_i,
     // instance A: transmitter side
+    input wire       a_cfg_en_i,
+    input wire [2:0] a_cfg_n_i,
+    input wire       a_cfg_mode_i,
     input wire       a_clear_i,
     input wire       a_bit_valid_i,
     input wire       a_bit_i,
@@ -301,6 +328,9 @@ module stuff_rt_props #(
     input wire       a_stuff_bit_o,
     input wire       a_violation_o,
     // instance B: receiver side
+    input wire       b_cfg_en_i,
+    input wire [2:0] b_cfg_n_i,
+    input wire       b_cfg_mode_i,
     input wire       b_clear_i,
     input wire       b_bit_valid_i,
     input wire       b_bit_i,
@@ -311,11 +341,14 @@ module stuff_rt_props #(
     localparam CW = $clog2(DEPTH + 1) + 1;   // one spare bit to see overflow
     localparam EQUAL = 1'b1;
 
-    wire a_push  = a_bit_valid_i && !a_clear_i;
-    wire b_pop   = b_bit_valid_i && !b_clear_i;
-    wire tx_data = a_push && !a_stuff_next_o;
-    wire rx_data = b_pop  && !b_stuff_next_o;
-    wire on      = cfg_en_i && cfg_n_i != 3'd0;
+    wire a_push   = a_bit_valid_i && !a_clear_i;
+    wire b_pop    = b_bit_valid_i && !b_clear_i;
+    wire tx_data  = a_push && !a_stuff_next_o;
+    wire rx_data  = b_pop  && !b_stuff_next_o;
+    wire a_active = a_cfg_en_i && a_cfg_n_i != 3'd0 &&
+                    !(a_cfg_mode_i == EQUAL && a_cfg_n_i == 3'd1);
+    wire [4:0] a_cfg = {a_cfg_en_i, a_cfg_n_i, a_cfg_mode_i};
+    wire [4:0] b_cfg = {b_cfg_en_i, b_cfg_n_i, b_cfg_mode_i};
 
     // ---------------------------------------------------------------------
     // Mirror of the wire (bit value and "is a stuff bit" tag, head at [0])
@@ -358,6 +391,11 @@ module stuff_rt_props #(
     end
 
     // channel / harness obligations
+    logic [4:0] p_a_cfg, p_b_cfg;
+    always @(posedge clk) begin
+        p_a_cfg <= a_cfg;
+        p_b_cfg <= b_cfg;
+    end
     always @* begin
         if (rst_n) begin
             env_rt_tx_obeys: assert (!(a_push && a_stuff_next_o) || a_bit_i == a_stuff_bit_o);
@@ -367,6 +405,13 @@ module stuff_rt_props #(
             env_rt_a_clr:    assert (!a_clear_i || (cnt == '0 && !pend && !b_bit_valid_i));
             env_rt_b_clr:    assert (!b_clear_i || pend);
             env_rt_b_wait:   assert (!b_bit_valid_i || !pend);
+            // each side's cfg changes only in reset or with its own clear;
+            // B uses the cfg of the frame it is in
+            if (!$initstate) begin
+                env_rt_cfg_a:  assert (a_clear_i || a_cfg == p_a_cfg);
+                env_rt_cfg_b:  assert (b_clear_i || b_cfg == p_b_cfg);
+            end
+            env_rt_cfg_ab: assert (pend || a_clear_i || a_cfg == b_cfg);
         end
     end
 
@@ -428,88 +473,84 @@ module stuff_rt_props #(
     end
 
     // ---------------------------------------------------------------------
-    // Required property 1: run length on the wire (as transmitted)
+    // Required property 1: run length on the wire (as transmitted), and
+    // required property 2: progress (a stuff bit is followed by a data bit)
     // ---------------------------------------------------------------------
-    logic [3:0] wr;          // current run on the wire, saturating at 15
+    logic [3:0] wr;           // current run on the wire, saturating at 15
     logic       wr_last, wr_hist;
-    logic       f_sent;      // A has put a bit on the wire in this frame
-    logic       f_prev_stuff;// the previous wire bit of this frame was a stuff bit
+    logic       f_prev_stuff; // the previous wire bit of this frame was a stuff bit
     wire  [3:0] wr_inc = (wr == 4'd15) ? 4'd15 : wr + 4'd1;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            wr <= 4'd0; wr_last <= 1'b0; wr_hist <= 1'b0;
-            f_sent <= 1'b0; f_prev_stuff <= 1'b0;
+            wr <= 4'd0; wr_last <= 1'b0; wr_hist <= 1'b0; f_prev_stuff <= 1'b0;
         end else if (a_clear_i) begin
-            wr <= 4'd0; wr_hist <= 1'b0;
-            f_sent <= 1'b0; f_prev_stuff <= 1'b0;
+            wr <= 4'd0; wr_hist <= 1'b0; f_prev_stuff <= 1'b0;
         end else if (a_push) begin
-            if (cfg_mode_i == EQUAL)
+            if (a_cfg_mode_i == EQUAL)
                 wr <= (wr_hist && a_bit_i == wr_last) ? wr_inc : 4'd1;
             else
                 wr <= a_bit_i ? wr_inc : 4'd0;
             wr_last      <= a_bit_i;
             wr_hist      <= 1'b1;
-            f_sent       <= 1'b1;
             f_prev_stuff <= a_stuff_next_o;
         end
     end
 
     always @* begin
-        if (rst_n && on) begin
-            rt_max_run: assert (wr <= {1'b0, cfg_n_i});
+        if (rst_n && !a_clear_i && a_active) begin
+            rt_max_run: assert (wr <= {1'b0, a_cfg_n_i});
         end
-    end
-
-    // progress: a stuff bit is always followed by a data bit, except EQUAL
-    // with N = 1, where (spec issue) stuffing never ends after the first bit
-    always @* begin
-        if (rst_n && a_push && a_stuff_next_o && f_prev_stuff) begin
-            rt_progress: assert (cfg_mode_i == EQUAL && cfg_n_i == 3'd1);
-        end
-        if (rst_n && cfg_en_i && cfg_mode_i == EQUAL && cfg_n_i == 3'd1 && f_sent) begin
-            rt_eq_n1_livelock: assert (a_stuff_next_o);   // documents the spec issue
+        if (rst_n && a_push && f_prev_stuff) begin
+            rt_progress: assert (!a_stuff_next_o);
         end
     end
 
     // ---------------------------------------------------------------------
     // Covers
     // ---------------------------------------------------------------------
-    logic f_drop;      // B has dropped a stuff bit since reset
-    logic f_frame2;    // a second frame (after a clear) has started
+    logic f_drop;       // B has dropped a stuff bit since reset
+    logic f_drop_fr;    // ... since its last clear
+    logic f_frame2;     // B has started a second frame
+    logic f_newcfg;     // B has cleared into a frame with a different cfg
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            f_drop <= 1'b0; f_frame2 <= 1'b0;
+            f_drop <= 1'b0; f_drop_fr <= 1'b0; f_frame2 <= 1'b0; f_newcfg <= 1'b0;
         end else begin
             if (b_pop && b_stuff_next_o) f_drop <= 1'b1;
-            if (b_clear_i)               f_frame2 <= 1'b1;
+            if (b_clear_i)                     f_drop_fr <= 1'b0;
+            else if (b_pop && b_stuff_next_o)  f_drop_fr <= 1'b1;
+            if (b_clear_i)                     f_frame2 <= 1'b1;
+            if (b_clear_i && b_cfg != p_b_cfg) f_newcfg <= 1'b1;
         end
     end
 
     always @(posedge clk) begin
         // stuff bit inserted by A and dropped by B, each mode
-        c_rt_ins_ones:  cover (rst_n && a_push && a_stuff_next_o && cfg_mode_i != EQUAL);
-        c_rt_ins_eq:    cover (rst_n && a_push && a_stuff_next_o && cfg_mode_i == EQUAL);
-        c_rt_drop_ones: cover (rst_n && b_pop && b_stuff_next_o && cfg_mode_i != EQUAL);
-        c_rt_drop_eq:   cover (rst_n && b_pop && b_stuff_next_o && cfg_mode_i == EQUAL);
+        c_rt_ins_ones:  cover (rst_n && a_push && a_stuff_next_o && a_cfg_mode_i != EQUAL);
+        c_rt_ins_eq:    cover (rst_n && a_push && a_stuff_next_o && a_cfg_mode_i == EQUAL);
+        c_rt_drop_ones: cover (rst_n && b_pop && b_stuff_next_o && b_cfg_mode_i != EQUAL);
+        c_rt_drop_eq:   cover (rst_n && b_pop && b_stuff_next_o && b_cfg_mode_i == EQUAL);
         // the round-trip check fires on a data bit after a dropped stuff bit
-        c_rt_watch_ones:    cover (rst_n && w_hit && f_drop && cfg_mode_i != EQUAL);
-        c_rt_watch_eq:      cover (rst_n && w_hit && f_drop && cfg_mode_i == EQUAL);
-        c_rt_watch_ones_n7: cover (rst_n && w_hit && f_drop && cfg_mode_i != EQUAL && cfg_n_i == 3'd7);
-        c_rt_watch_eq_n7:   cover (rst_n && w_hit && f_drop && cfg_mode_i == EQUAL && cfg_n_i == 3'd7);
-        c_rt_watch_ones_n1: cover (rst_n && w_hit && f_drop && cfg_mode_i != EQUAL && cfg_n_i == 3'd1);
-        c_rt_watch_eq_n2:   cover (rst_n && w_hit && f_drop && cfg_mode_i == EQUAL && cfg_n_i == 3'd2);
-        c_rt_watch_frame2:  cover (rst_n && w_hit && f_drop && f_frame2);
-        // the watched bit has another data bit ahead of it (in_flight > 1)
+        c_rt_watch_ones:    cover (rst_n && w_hit && f_drop_fr && b_cfg_mode_i != EQUAL);
+        c_rt_watch_eq:      cover (rst_n && w_hit && f_drop_fr && b_cfg_mode_i == EQUAL);
+        c_rt_watch_ones_n7: cover (rst_n && w_hit && f_drop_fr && b_cfg_mode_i != EQUAL && b_cfg_n_i == 3'd7);
+        c_rt_watch_eq_n7:   cover (rst_n && w_hit && f_drop_fr && b_cfg_mode_i == EQUAL && b_cfg_n_i == 3'd7);
+        c_rt_watch_ones_n1: cover (rst_n && w_hit && f_drop_fr && b_cfg_mode_i != EQUAL && b_cfg_n_i == 3'd1);
+        c_rt_watch_eq_n2:   cover (rst_n && w_hit && f_drop_fr && b_cfg_mode_i == EQUAL && b_cfg_n_i == 3'd2);
+        c_rt_watch_frame2:  cover (rst_n && w_hit && f_drop_fr && f_frame2);
+        c_rt_watch_newcfg:  cover (rst_n && w_hit && f_drop_fr && f_newcfg && f_drop);
+        // the watched bit has another data bit ahead of it
         c_rt_watch_behind:  cover (rst_n && w_armed && w_ahead != '0);
         // max run reached exactly (bound is tight)
-        c_rt_run_ones_n7: cover (rst_n && on && cfg_mode_i != EQUAL && cfg_n_i == 3'd7 && wr == 4'd7);
-        c_rt_run_eq_n7:   cover (rst_n && on && cfg_mode_i == EQUAL && cfg_n_i == 3'd7 && wr == 4'd7);
-        // disabled: long runs pass through unchanged
-        c_rt_dis_run:     cover (rst_n && !on && wr == 4'd9 && f_drop == 1'b0);
+        c_rt_run_ones_n7: cover (rst_n && a_active && a_cfg_mode_i != EQUAL && a_cfg_n_i == 3'd7 && wr == 4'd7);
+        c_rt_run_eq_n7:   cover (rst_n && a_active && a_cfg_mode_i == EQUAL && a_cfg_n_i == 3'd7 && wr == 4'd7);
+        // disabled (incl. EQUAL with N = 1): long runs pass through unchanged
+        c_rt_dis_run:     cover (rst_n && !a_active && wr == 4'd9 && !f_drop);
+        c_rt_dis_eq_n1:   cover (rst_n && a_cfg_en_i && a_cfg_mode_i == EQUAL && a_cfg_n_i == 3'd1 && wr == 4'd4);
         // wire full, and A and B out of step (timing really decoupled)
         c_rt_full:        cover (rst_n && cnt == DEPTH);
-        c_rt_skew:        cover (rst_n && on && a_stuff_next_o != b_stuff_next_o);
+        c_rt_skew:        cover (rst_n && a_active && !pend && a_stuff_next_o != b_stuff_next_o);
     end
 
 endmodule

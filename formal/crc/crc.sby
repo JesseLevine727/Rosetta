@@ -1,0 +1,69 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_crc (check unit).    sby -f crc.sby [task]
+#
+#  DESIGN UNDER TEST -- exactly one of the next two lines is active:
+#    the real block (default)          ../../src/rosetta_crc.sv
+#    the property writer's private ref  ref/rosetta_crc.sv  (NOT the design;
+#                                       used only to show non-vacuity)
+# ============================================================================
+[files]
+rosetta_crc.sv ../../src/rosetta_crc.sv
+# rosetta_crc.sv ref/rosetta_crc.sv
+crc_props.sv
+crc_ka_states.svh
+crc_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded proof of every assertion. Two engines run in parallel and
+#         the first conclusive answer wins (an inconclusive induction step is
+#         reported UNKNOWN and does not end the task):
+#           smtbmc bitwuzla  k-induction, depth 10. Every property is a
+#                            relation between consecutive cycles and the
+#                            known answers carry per-step lemmas (ka_step),
+#                            so the checker side is 1-inductive; the depth is
+#                            slack for the design's own internal state.
+#           abc pdr          property-directed reachability: needs no depth
+#                            and finds design invariants itself, in case the
+#                            real RTL has state that k-induction cannot close.
+#         A PASS from either is an unbounded proof; neither depends on the
+#         depth for soundness.
+#  bmc    bounded check, depth 80 (justification below)
+#  cover  every cover statement reachable, depth 80
+#
+#  Depth 80 justification. The deepest property is a known answer: cycle 0
+#  is the assumed reset, init_i can first act at cycle 1, the 72 data bits are
+#  consumed at cycles 2..73, and value_o is checked at cycle 74 -- 75 cycles,
+#  steps 0..74. Depth 80 therefore contains every gapless known-answer run
+#  (the spec's "proof over the fixed 72-bit input") plus up to 5 idle or
+#  repeated-init cycles. Gaps add nothing: idle cycles are proven to hold
+#  the state for all time (ap_hold, unbounded in `prove`), and `prove` covers
+#  the known answers with any number of gaps anyway. Every other assertion
+#  relates at most two consecutive cycles and is checked from step 0, and
+#  all of them are proven unbounded by `prove`; the bmc task is an
+#  independent cross-check that gives readable traces on failure.
+#  The deepest cover (each known answer reached) needs the same 75 steps.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 10
+bmc: mode bmc
+bmc: depth 80
+cover: mode cover
+cover: depth 80
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+read_verilog -sv -formal rosetta_crc.sv
+read_verilog -sv -formal crc_props.sv
+read_verilog -sv -formal crc_fv.sv
+prep -top crc_fv

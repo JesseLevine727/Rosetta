@@ -14,8 +14,12 @@ together and so every block can be proven with the open-source tools.
 - One clock `clk`, rising edge only. One reset `rst_n`, asynchronous,
   active low. **Every flop is reset** (the cell library has no flop without
   reset, and silicon flops power up at unknown values).
+- Declare inputs as `input wire`, outputs as `output logic`. `input logic`
+  under `` `default_nettype none `` is rejected by Vivado (Synth 8-6735),
+  although Yosys and Verilator accept it.
 - Port suffixes: `_i` input, `_o` output. Configuration inputs are prefixed
-  `cfg_` and are assumed stable while the block is active.
+  `cfg_` and are assumed stable while the block is active; they change only in a
+  cycle where the block is being initialised or cleared, or in reset.
 - No latches, no combinational loops, no tri-states inside the chip, no
   `initial` blocks, no delays.
 - Registered outputs wherever the block spec does not say otherwise. Target

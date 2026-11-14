@@ -18,3 +18,9 @@ Workers: Claude Opus 5.5. The human owner approves the items listed under
 | 13 Nov | Worker | FPGA harness on PYNQ-Z1 | Demonstrated on the board; clock measured against an independent oscillator |
 | 13 Nov | Worker | Toolchain (assembler, model, parser) | Overseer ran the 74 tests |
 | 13 Nov | Worker | Shared-logic block specs | Overseer review; reconciliation rulings in `docs/decisions.md` |
+| 14 Nov | Worker pairs (designer; property writer blind to the RTL), one pair per block | `rosetta_chan`, `xbar`, `events`, `coding`, `pins`, `field`, `delay`, `seq`, `tick` | Overseer ran prove/bmc/cover on each real RTL file and checked the proven file's checksum against `src/` |
+| 14 Nov | Two architect workers, then a cold reviewer | Cycle-exact block specs for the lane and the shared logic | Reviewer found 11 cross-spec errors; designers and property writers found more; overseer ruled on each (rulings 18-54) |
+| 14 Nov | Referee worker | Tick gate failure | Reproduced the counterexample, decided from the spec text that the RTL was wrong, fixed one term; overseer reran the proofs |
+| 14 Nov | Worker | Lane and chip top-level integration, FPGA first light | Overseer read the board result file; capture decoded independently of the chip |
+| 14 Nov | Worker | FPGA loopback: UART receive, listener, rate sweep, SPI | Each checked twice: pin capture decoded independently, and data read back over SPI. Found an assembler encoding bug, fixed by the overseer |
+| 14 Nov | Worker | Lane timing by place and route; full-chip hardening | Overseer checked the lane metrics file; full chip did not route, congestion map kept |

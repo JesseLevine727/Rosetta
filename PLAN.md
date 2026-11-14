@@ -21,7 +21,7 @@ Deadline: **18 January 2027**. Target submission: **17 January**.
 
 | Rung | Contents | Status |
 |---|---|---|
-| 1 | Lanes, sequencer, host port, compiler. UART, SPI, I2C in every role, proven. Clean TT flow at 60 MHz. | not started |
+| 1 | Lanes, sequencer, host port, compiler. UART, SPI, I2C in every role, proven. Clean TT flow at 60 MHz. | in progress: 11 blocks proven; UART and SPI run on the FPGA; full chip does not route yet; compiler not started |
 | 2 | Listen with timestamps, Translate, Intercept. Low-speed USB keyboard. Ethernet transmit. | not started |
 | 3 | Stress. Ethernet receive and `ping`. Mutation score. | not started |
 | 4 | Imitate. | not started |
@@ -119,3 +119,9 @@ memory wrappers, top level.
 - 13 Nov (overnight): area probe measured; 4 lanes chosen; three lane shrinks and three-cycle instruction pipeline adopted. Conventions and block specs for CRC and stuffing written; 6 more workers started (CRC and stuffing designer/prover pairs, local hardening, FPGA harness).
 - 13-14 Nov (overnight): **two blocks proven and merged**: `rosetta_crc` (4,689 um2 after one hill-climb step) and `rosetta_stuff` (spec v2, 552 um2). **Local hardening works** with two SRAM macros at 16.67 ns: DRC/LVS/antenna 0, precheck pass, slow-corner setup slack +3.39 ns (`/home/elfo/tools/tt-local/`). **FPGA harness works** on the PYNQ-Z1 at a measured 60 MHz (`/home/elfo/tools/rosetta-fpga/`). Toolchain: assembler, cycle-accurate model, language parser, 74 tests pass. ISA v0.2, provisional description language, shared-logic block specs drafted. Rulings toward ISA v0.3 in `docs/decisions.md`.
 - 14 Nov 23:50-01:20: work paused by the account's usage limit (eight parallel workers exhausted the five-hour allowance). Resumed with fewer workers at a time.
+- 14 Nov, 01:20-03:50 and 06:20-07:30 (overnight, continued): **eleven blocks proven and merged**: crc, stuff, chan, xbar, events, coding, pins, field, delay, seq, tick. Each passed prove, bmc and cover on the real RTL, with properties written by a worker who never saw the RTL. One gate failure (tick: sample strobe fired one cycle after a capture instead of four) was a real RTL bug, refereed and fixed. Rulings 1-54 in `docs/decisions.md`.
+- 14 Nov: **first light on the PYNQ-Z1**: the whole chip at 60 MHz (WNS +2.78 ns) loaded over the SPI host link; UART transmit exact to the cycle at 115200 baud; UART lane-to-lane receive 18/18 bytes, tolerant from +5.0 % to -4.6 %; timestamped listener; SPI controller and target between two lanes at 1-3 MHz. Results in `/home/elfo/tools/rosetta-fpga/results/`.
+- 14 Nov: **one lane placed and routed at 16.67 ns**: slow-corner setup slack +6.09 ns.
+- 14 Nov: **the full chip does NOT route yet** (8x4, two SRAMs): placement and pre-route timing are fine (slow-corner setup +4.28 ns) but detailed routing stalls at about 26,000 violations; two thirds of the congestion is nets crossing the SRAM bodies. Synthesis in the real flow is 483,048 um2, 25 % above the Yosys estimate. This is now the top risk.
+- Not yet through their gates (on branch `wip/unproven`): host port (prove and bmc pass; cover run unfinished), memory wrappers, mode-register file, lane top, chip top. Not written: two-copy non-interference proof, reset proof at chip level, netlist equivalence, the compiler (language to program), protocol monitors.
+- Usage-limit pauses: 23:50-01:20 and 03:50-06:20.

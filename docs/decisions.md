@@ -90,6 +90,14 @@ Rulings from the field proofs:
 | 50 | Tick properties the field relies on | The tick block must also prove: `lt` and `ct` never in one cycle; in `BAUD` timing `lt` only with `launch_req`; `st = ct` outside `BAUD` timing and `st = ct && cu_smp` with `stretch_honour`; in `BAUD` timing a `ct` needs an `lt` since the last `ct`. |
 | 51 | Result destination | The field guarantees only that `res_dst_o` is not `NONE`; the other excluded codes are instruction-level and belong to the sequencer (ruling 13). |
 
+Rulings from the tick proofs:
+
+| # | Topic | Ruling |
+|---|---|---|
+| 52 | Round-trip countdown (refines ruling 42) | A `BAUD` capture restarts the countdown and discards an older running count, so every sample strobe is exactly the round trip after its own reference cycle. The first tick RTL let the older count run on and fired the sample strobe one cycle after a sampling capture; the proofs caught it and the RTL was fixed. |
+| 53 | `lt` and `ct` in one cycle (corrects ruling 50) | False in `EDGE` mode while the lane holds the clock (`stretch_hold`) and the clock's low phase is shorter than the 4-cycle round trip. Compiler rule: `stretch_hold` requires a clock low phase of at least 5 cycles. Open obligation: a lane-level proof that the coincidence cannot occur under that rule, since the field proofs assume it never does. |
+| 54 | Tick proof range | The unbounded tick proof covers `PERIOD` and `PERIOD2` from 0 to 7 and timer counts 0 to 7; the bounded run has no range limit to depth 32. Longer periods rest on the counter logic not depending on the period's size, which is not itself proven. |
+
 Known risks, not rulings: Ethernet receive has about half a cycle of
 jitter margin with single-edge sampling (decide on the FPGA whether to
 sample on both clock edges); a USB bus reset is timed by software.

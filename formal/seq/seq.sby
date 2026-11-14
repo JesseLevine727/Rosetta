@@ -1,0 +1,71 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_seq (shared sequencer).
+#      cd formal/seq && sby -f seq.sby [prove|bmc|cover]
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_seq.sv ref/rosetta_seq.sv
+# ============================================================================
+[files]
+rosetta_seq.sv ../../src/rosetta_seq.sv
+seq_props.sv
+seq_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded proof of every assertion (k-induction, smtbmc bitwuzla).
+#         The checker's lane model is computed each cycle from the OBSERVED
+#         architectural state (obs_* ports), so it keeps no copy of that
+#         state; its only memory is the IR model (rewritten every cycle), the
+#         D->X snapshot (rewritten every cycle) and the registered expected
+#         next state (rewritten every cycle). Every checker property relates
+#         at most three consecutive cycles (D, X, X+1), so the checker side is
+#         inductive at depth 3; the depth adds slack for design state that
+#         is not visible at the ports (pipeline registers). If the design
+#         holds hidden state k-induction cannot close, run `abc pdr` instead
+#         (task prove_pdr, optional, not part of the delivered result).
+#         Against the private reference model k-induction closes at depth 6
+#         in about 10 s. The basecase of `prove` is only 6 steps deep: a
+#         planted bug that needs more than one slot to reach (ADDC with a
+#         carry, a host PC write while running, vector priority with two
+#         armed events) ends `prove` UNKNOWN and is found by `bmc`.
+#  bmc    bounded cross-check, depth 24 (justification below).
+#  cover  every cover statement, depth 30.
+#
+#  Depth justification. One wheel turn is 5 cycles. Every lane-level
+#  assertion relates at most the D cycle, the X cycle and the cycle after X
+#  of one slot. Every per-lane architectural state is reachable from reset
+#  within a few slots under the free inputs (host write of CTRL at ph = 1,
+#  then one slot per instruction; register values come from LDI or host-free
+#  deliveries in one slot). Depth 24 covers reset + 4 slots + a mid-trace
+#  reset. bmc is supplementary; `prove` is the unbounded result. Deepest
+#  cover: c_wait_to_after_start / c_wait_hit_after_start (reset, host run at
+#  cycle 1, WAIT start at the first D, end two slots later) about 4 slots =
+#  20 cycles; c_cap_pair 3 slots; depth 30 is that plus margin.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+prove_pdr
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 6
+prove_pdr: mode prove
+bmc: mode bmc
+bmc: depth 24
+cover: mode cover
+cover: depth 30
+
+[engines]
+prove: smtbmc bitwuzla
+prove_pdr: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read_verilog -sv -formal rosetta_seq.sv
+read_verilog -sv -formal seq_props.sv
+read_verilog -sv -formal seq_fv.sv
+prep -top seq_fv

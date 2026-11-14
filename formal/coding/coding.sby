@@ -1,0 +1,61 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_coding (coding.md + decisions.md rulings 20,
+#  21, 27, 46-48).
+#      cd formal/coding && sby -f -d ref/build/coding_prove coding.sby prove
+#      (tasks: prove | bmc | cover; keep run directories under ref/build/)
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_coding.sv ref/rosetta_coding.sv
+# ============================================================================
+[files]
+rosetta_coding.sv ../../src/rosetta_coding.sv
+coding_props.sv
+coding_rt.sv
+coding_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded, abc pdr, every assertion of the unit check and of the
+#         three round trips. Unit check: every input full range. Round
+#         trips: Manchester h = 3..15 (the 4-bit symbolic half-bit time),
+#         THR0 any legal value; pulse width H0 < THR0 <= H1 <= 15
+#         (coding_rt.sv pw_rng). The range only limits the harness's tick
+#         model: the design reads cfg_pw0_i/cfg_pw1_i only as zero/non-zero
+#         (coding.md 1), proven for all 8-bit values by the unit check.
+#         `read -define RT_PW_FULL` lifts it (PDR then needs far longer).
+#  bmc    supplementary, depth 24. Unit check: the model state is the seven
+#         spec flops; every value of them is reachable within 4 cycles of
+#         reset (dl_q at once; nz_q, mph, hp/hv, tl_q, pwb each by one
+#         strobe, several per cycle), every assertion spans at most two
+#         cycles, so depth 4 + 2 already checks every model transition from
+#         every reachable model state; 24 leaves margin for design-internal
+#         state. The round trips are NOT bounded-complete at any practical
+#         depth (h up to 15, H up to 255 cycles); their result is `prove`.
+#  cover  depth 40: deepest covers are the Manchester stream covers (lock
+#         after a long interval then 3-5 decoded bits at h = 3..4, about
+#         30 cycles) and the NRZI run of three synced bits.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+bmc: mode bmc
+bmc: depth 24
+cover: mode cover
+cover: depth 40
+
+[engines]
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read -formal rosetta_coding.sv
+read -formal coding_props.sv
+read -formal coding_rt.sv
+read -formal coding_fv.sv
+prep -top coding_fv

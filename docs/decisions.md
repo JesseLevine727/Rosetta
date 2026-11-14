@@ -26,5 +26,23 @@ v0.3 will restate them; until then this file wins.
 | 16 | Queue pointers | Producer owns the write pointer, consumer the read pointer; the host writes lane-owned pointers only while the lane is halted. |
 | 17 | Channels | Host clear and a lane operation on the same channel never coincide; one producer and one consumer per channel is a compiler rule. |
 
-Still to rule (after the lane specs arrive): F11-F32 details (operand
+Rulings on the lane specs (`docs/blocks/lane.md` decisions I1-I30):
+
+| # | Topic | Ruling |
+|---|---|---|
+| 18 | Round trip (I1) | Output flop plus input latency is 4 cycles. In `BAUD` the data input is sampled 4 cycles after the capture tick. Accepted, including the longer clock phase between back-to-back sampling fields at 3 + 3 cycles. |
+| 19 | End of field, `PIN` in `BAUD` (I2, I7) | As lane.md: complete at the last capture, busy to the end of the last bit, `PIN` waits for the timer to stop. |
+| 20 | Differential input (I13) | While the two lines are equal the data input holds and no bit is captured. |
+| 21 | Undefined values in mode-register data (I17) | Treated as off by the lane. Ruling 13 (halt) applies to instruction codes only, because the sequencer does not decode register data. |
+| 22 | Prescaler (I8) | One free-running prescaler per lane. The model changes to match. |
+| 23 | Pulse thresholds (I11) | Only `THR0` exists (one bit per pulse: short or long). `THR1` and `THR2` are deleted. |
+| 24 | Limits (I19, I20) | Receive de-stuffing needs `RECOVER` or `EDGE` timing. `seek` matches at most 16 bits. |
+| 25 | I2C controller STOP while a target stretches (I28) | Use an event plus `WAIT`; no new hardware. |
+| 26 | Interface additions | `ts_i`/`res_ts_o` for timestamps; `busy_o` covers the end of the last bit; a parked operation starts two cycles after its park; a result overrun holds the completing operation. sequencer.md follows lane.md here. |
+
+Known risks, not rulings: Ethernet receive has about half a cycle of
+jitter margin with single-edge sampling (decide on the FPGA whether to
+sample on both clock edges); a USB bus reset is timed by software.
+
+Still to rule: F11-F32 details (operand
 alignment, CRC as a source with the lsb flag, PIN wait units, SETM halves).

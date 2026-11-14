@@ -127,3 +127,4 @@ memory wrappers, top level.
 - Usage-limit pauses: 23:50-01:20 and 03:50-06:20.
 - 14 Nov: **description language approved by the user** (core syntax, host view, direction of the USB/Ethernet extensions). Host port cover run finished: 44 of 44 covers, PASS (not yet merged).
 - 14 Nov: **where the extra area comes from**: logic alone is 388,186 um2; the flow's default synthesis (`DELAY 4`) adds 21k for speed-oriented mapping and 75k for 9,164 fanout buffers (483,048); post-placement repair adds 19k, the clock tree 12k, hold fixing 57k (3,506 buffers on 3,199 endpoints), giving 571,115 um2 at routing. Buffers are about 30 % of it. Test run with `SYNTH_STRATEGY: AREA 0` in `/home/elfo/tools/tt-local/rosetta-full-chip-area0`.
+- 14 Nov: **`rosetta_host` proven and merged** (12th block): prove, bmc and cover (44 of 44) pass on the real RTL, md5 efb589ff8fdfec72e625c794711f0091. Merge approved by the user.

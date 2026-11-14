@@ -1,7 +1,31 @@
+# Tiny Tapeout template
+.DS_Store
+.idea
+*.vcd
+*.fst
+*.fst.hier
+runs
+tt_submission
+src/user_config.json
+src/config_merged.json
+test/sim_build
+test/__pycache__/
+test/results.xml
+test/gate_level_netlist.v
+
+# Local TT support tools checkout used for local hardening / precheck
+tt/
+
+# Formal run directories (SymbiYosys / EQY create one per job)
+formal/**/build/
+formal/**/*_bmc/
+formal/**/*_prove/
+formal/**/*_cover/
+formal/**/*_eqy/
+
 # Local toolchains and build outputs
 _opam/
 _build/
-runs/
 
-# Competition reference material (emails, blog PDF) - kept local only
+# Competition reference material (emails, blog PDF): kept local only
 reference/

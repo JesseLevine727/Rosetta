@@ -1,0 +1,7 @@
+# Local toolchains and build outputs
+_opam/
+_build/
+runs/
+
+# Competition reference material (emails, blog PDF) - kept local only
+reference/

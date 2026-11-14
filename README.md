@@ -1,6 +1,6 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg)
 
-# Protocol emulator ASIC (working title)
+# Rosetta
 
 An open-source, reprogrammable protocol emulator ASIC for the [Jane Street
 protocol emulator ASIC
@@ -8,7 +8,7 @@ competition](https://blog.janestreet.com/protocol-emulator-asic-competition/).
 Target: IHP 130 nm SG13CMOS5L, Tiny Tapeout 8x4 tiles, submission due
 18 January 2027.
 
-The architecture is being chosen now.
+One protocol description gives a controller, a target and a listener, each with a proof that it follows the protocol. See [`docs/architecture.md`](docs/architecture.md) and [`PLAN.md`](PLAN.md).
 
 ## Repository layout
 

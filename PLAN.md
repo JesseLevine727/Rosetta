@@ -35,12 +35,12 @@ holds.
 
 | Item | Gate |
 |---|---|
-| Architecture spec (`docs/architecture.md`) | approved by the user |
+| Architecture spec (`docs/architecture.md`) | **done**: approved 13 Nov |
 | Instruction set (`docs/isa.md`) with an executable model | every instruction class has a worked example |
 | Description language (`docs/language.md`), UART / SPI / I2C written in it | approved by the user |
 | Interface spec for every block boundary | each signal has an owner and a timing rule |
 | Area probe: one lane synthesized on CMOS5L | measured cells and flops replace the estimate; 4 or 6 lanes decided |
-| Name chosen, repo and top module renamed | approved by the user |
+| Name chosen, repo and top module renamed | **done**: Rosetta, 13 Nov |
 
 ### Phase 1: blocks and first light (19 Nov - 6 Dec), 6-8 workers
 
@@ -115,4 +115,4 @@ memory wrappers, top level.
 
 - 13 Nov: old design archived, repo reset from the TT template (8x4),
   area budget derived, formal tools installed, idea approved, PYNQ-Z1 found.
-- 13 Nov: architecture spec and this plan drafted, awaiting approval.
+- 13 Nov: architecture spec approved; named Rosetta; repo renamed; Phase 0 started.

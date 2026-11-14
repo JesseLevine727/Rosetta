@@ -1,6 +1,6 @@
-# Architecture specification
+# Rosetta architecture specification
 
-Status: **draft for approval**. Nothing here is implemented yet. Numbers
+Status: **approved 13 Nov 2026**. Nothing here is implemented yet. Numbers
 marked *(estimate)* have not been checked by synthesis.
 
 ## 1. What the chip is
@@ -42,6 +42,10 @@ Sharing the sequencer is what makes four lanes fit. Fixed slots are what make
 each lane's timing independent of the others, which is something we prove.
 
 ## 3. Block diagram
+
+![Rosetta architecture](figures/architecture.png)
+
+Source: `figures/architecture.tex`. The same structure as text:
 
 ```
                  RP2350 host (SPI)                    24 pins

@@ -74,6 +74,14 @@ Rulings on tick.md ambiguities (they amend tick.md):
 | 44 | 4.3, 4.1 | A `TICK` write produces no `lt`; when nothing applies `cnt` holds; a stop clears `bt_run` and `lr` only. |
 | 45 | 9.2 | Delay unit: while halted all outputs are 0; a new delayed request flushes the pending one; the raw counter may saturate at 255. |
 
+Rulings on coding.md ambiguities (they amend coding.md):
+
+| # | Section | Ruling |
+|---|---|---|
+| 46 | 3.2 / 5.2 | `rxv` is gated by a valid differential pair in every receive coding, including Manchester and pulse-symbol; the `mph` update on `st_i` is not. `rxb_o`/`rxv_o` are not gated by `st_i`. |
+| 47 | 3.2, 4.2, 4.3 vs 4.4 | In a same-cycle collision the clearing action wins: a `CODE` or `TICK` write sets `mph` to 1 over a Manchester sample; abort or a write clears `hp` over `tx_go_i`; a `PIN` write of `out0` sets `tl_q` over a request. A release clears `hp` only. |
+| 48 | 4.2, 5.8 | `dreq_o` is gated by `run_i` only; same-cycle requests have priority wire bit, release, `RAW DRIVE`, second change. `dreq_dly_o` is 0 exactly for `RAW DRIVE` requests and 1 otherwise. `dpay_o` is unspecified when `dreq_o` is 0. |
+
 Known risks, not rulings: Ethernet receive has about half a cycle of
 jitter margin with single-edge sampling (decide on the FPGA whether to
 sample on both clock edges); a USB bus reset is timed by software.

@@ -50,6 +50,18 @@ Rulings after the cross-review of the lane specs (`lane.md` 12.2, R1-R11):
 | 30 | sequencer.md follows lane.md | `lane_busy_i` covers the end of the last `BAUD` bit; new input `lane_res_ts_i` (16 bits per lane); `CAP` timestamp word is `{ts[31:16] - (ts[15:0] < res_ts), res_ts}`; a parked operation is current two cycles after its park; an overrun holds the completing operation; sync instructions wait for the end of the last `BAUD` bit; top level routes `ts_o` to the lanes. |
 | 31 | xbar.md text | Stale where it says two flops and t-2: the proven RTL has three flops on the pin path (t-3), two on the host path, one on loopback. In loopback the round trip is 2 cycles, not 4. |
 
+Rulings on field.md ambiguities (they amend field.md):
+
+| # | Section | Ruling |
+|---|---|---|
+| 32 | 2.1 / 5.3 | `seek` applies to `SAMPLE` and `EXPECT` only; on `DRIVE` and `EXCHANGE` the bit is ignored. |
+| 33 | 5.1 / 5.3 | `EXCHANGE` with `early`: if a capture tick arrives in the field's start cycle, the early launch wins (`lnch = 1`) and that capture takes no bit. |
+| 34 | 5.3 / 5.6 | A data-position sample while `tail = 1` takes no bit; the field completes. |
+| 35 | 3 / 6.2 / 8 | `hold` is cleared when the held operation completes, as well as at promotion, abort and halt. |
+| 36 | 6.1 / 6.2 | A held `RAW SAMPLE` completes on acceptance, like a held `FIELD`. |
+| 37 | 8 | Abort keeps `lstf` and `pstf`; promotion clears them. |
+| 38 | 2.1 / 6.2 / 8 | Cases the sequencer never produces are still defined: an ack in an abort cycle is ignored; a park in the same cycle as a promotion sets `pk_v`; `CRCCHK` wins over an `EXPECT` completion writing `M`, and acts whenever `run_i` is high. |
+
 Known risks, not rulings: Ethernet receive has about half a cycle of
 jitter margin with single-edge sampling (decide on the FPGA whether to
 sample on both clock edges); a USB bus reset is timed by software.

@@ -82,7 +82,7 @@ the final count (4 or 6) is decided by synthesis.
 | `BAUD` | An internal 16-bit period counter (with prescaler) expires | Any transmitter; controller side of SPI, I2C |
 | `EDGE` | A chosen input has a rising, falling or either edge | Target side of SPI, I2C, JTAG, SWD, PS/2 |
 | `RECOVER` | The period counter expires, and the counter re-aligns to the middle of a bit on every data edge | UART receive, USB, CAN |
-| `PULSE` | An input edge arrives; the time since the last edge is compared with up to 3 thresholds to give a symbol | Manchester (Ethernet), 1-Wire, WS2812, infrared |
+| `PULSE` | An input edge arrives; the time since the last edge is compared with up to 3 thresholds (8 bits, prescaled) to give a symbol | Manchester (Ethernet), 1-Wire, WS2812, infrared |
 
 A programmable **launch delay** (0-255 cycles) offsets when an output
 changes after its tick. This is the knob for the Stress ability (setup and
@@ -217,24 +217,47 @@ for self-test on silicon), and any output pin be driven by any lane output.
 
 ## 11. Area and timing
 
-*(estimate, to be replaced by synthesis in Phase 0)*
+Measured by synthesizing a structurally representative probe design to the
+CMOS5L typical-corner library with Yosys (13 Nov; no place and route yet).
 
-| Item | Area |
-|---|---|
-| One lane: about 480 flops and 2,500 logic cells | ~0.047 mm2 |
-| Four lanes | ~0.19 mm2 |
-| Sequencer, host port, crossbar, channels, timestamp | ~0.08 mm2 |
-| Standard cells total, about 20K cells | ~0.27 mm2 |
-| Two SRAM macros plus keep-out | ~0.19 mm2 |
+| Item | Cells | Flops | Area |
+|---|---|---|---|
+| One lane, as first specified | 3,458 | 760 | 67,630 um2 |
+| One lane with the three shrinks below | | 698 | 57,583 um2 |
+| Shared logic, 4 lanes | 4,476 | 546 | 74,300 um2 |
+| **Whole chip, 4 lanes** (before shrinks) | 19,404 | 3,586 | **337,906 um2** |
+| Whole chip, 6 lanes | 27,636 | 5,172 | 484,460 um2 |
 
-Placeable area is 1.208 mm2 (`docs/area-budget.md`), so this is about 27 %
-cell density outside the macros. The margin is intentional: it is there for
-routing on three metal layers, for timing at 60 MHz, and possibly for two
-more lanes.
+Room for standard cells is 1,016,850 um2 (placeable area minus two SRAM
+macros with 20 % keep-out). With 10 % added for place and route, 4 lanes
+need 36.6 % placement density and 6 lanes need 52.4 %.
 
-Clock target is 60 MHz (16.67 ns). The longest expected paths are the
-16-bit register arithmetic, the crossbar multiplexers and SRAM access; each
-is registered on both sides.
+**Decision: 4 lanes.** `N_LANES` stays a parameter. Six lanes would need
+more than 50 % density on three routing layers, which is not worth the risk
+before a real routing run.
+
+Largest lane blocks: field unit 24 %, CRC 18 %, event detectors 18 %, tick
+source 15 %. Flops are over half of all area, because the library has no
+flop with enable (each configuration bit costs a flop and a mux, 68 um2).
+
+Shrinks adopted (measured, 14.9 % off a lane):
+
+- CRC initial value and final XOR are each all-zeros or all-ones.
+- Pulse-width thresholds are 8 bits, in prescaled time.
+- Event counters are 8 bits.
+
+Held in reserve: latch-based configuration registers (about 18 % more off a
+lane, at the cost of latch handling in the proofs and the flow).
+
+Timing: clock target 60 MHz (16.67 ns). The probe's longest path at the
+typical corner is about 9.7 ns plus SRAM access (instruction word, register
+select, 16-bit subtract, zero test, next PC). That is too long for the slow
+corner, so:
+
+- Each instruction is spread over three cycles of the lane's five-cycle
+  slot spacing: fetch, decode (registered), execute. This costs no speed.
+- Lane inputs are registered after the crossbar.
+- Loop and branch decisions use registered flags, not same-cycle results.
 
 ## 12. Protocol coverage
 
@@ -280,7 +303,7 @@ MicroPython on the demo board.
 
 ## 15. Open questions
 
-1. Four lanes or six, decided by synthesis.
+1. ~~Four lanes or six~~: decided, four (section 11).
 2. Whether the ones'-complement checksum (needed for answering `ping`)
    belongs in the sequencer's register arithmetic.
 3. Whether sampling on both clock edges is needed for Ethernet receive

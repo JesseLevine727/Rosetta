@@ -39,7 +39,7 @@ holds.
 | Instruction set (`docs/isa.md`) with an executable model | every instruction class has a worked example |
 | Description language (`docs/language.md`), UART / SPI / I2C written in it | approved by the user |
 | Interface spec for every block boundary | each signal has an owner and a timing rule |
-| Area probe: one lane synthesized on CMOS5L | measured cells and flops replace the estimate; 4 or 6 lanes decided |
+| Area probe: one lane synthesized on CMOS5L | **done**: 4 lanes; 337,906 um2 for the chip, 36.6 % density; see architecture section 11 |
 | Name chosen, repo and top module renamed | **done**: Rosetta, 13 Nov |
 
 ### Phase 1: blocks and first light (19 Nov - 6 Dec), 6-8 workers
@@ -116,3 +116,4 @@ memory wrappers, top level.
 - 13 Nov: old design archived, repo reset from the TT template (8x4),
   area budget derived, formal tools installed, idea approved, PYNQ-Z1 found.
 - 13 Nov: architecture spec approved; named Rosetta; repo renamed; Phase 0 started.
+- 13 Nov (overnight): area probe measured; 4 lanes chosen; three lane shrinks and three-cycle instruction pipeline adopted. Conventions and block specs for CRC and stuffing written; 6 more workers started (CRC and stuffing designer/prover pairs, local hardening, FPGA harness).

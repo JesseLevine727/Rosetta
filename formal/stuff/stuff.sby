@@ -1,0 +1,43 @@
+# SymbiYosys job for rosetta_stuff.  Run from formal/stuff/:
+#     sby -f stuff.sby            (all tasks)
+#     sby -f stuff.sby prove      (one task: prove | bmc | cover)
+#
+# ---- Design under verification: exactly ONE of the two lines below ----
+# The real design (default):
+[files]
+rosetta_stuff.sv ../../src/rosetta_stuff.sv
+# The property writer's private reference model (NOT the design):
+#rosetta_stuff.sv ref/rosetta_stuff.sv
+stuff_props.sv
+stuff_fv.sv
+
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+# BMC depth 24 -- supplementary only; the unbounded result is `prove`.
+# Depth argument: in the stand-alone part every reachable state of the
+# spec model (run 0-7, last, history, violation) is reached within 9 cycles
+# of reset (1 reset + 7 equal bits + 1 violating bit). The round-trip part
+# adds a 2-entry wire, so B lags A by at most 2 bits plus the 1-cycle frame
+# handshake; the deepest cover (watched bit delivered after an N = 7 stuff
+# bit) is reached at step 11. 24 cycles hold two complete N = 7 frames back
+# to back. Cover depth 24 is likewise twice the deepest cover.
+bmc: mode bmc
+bmc: depth 24
+cover: mode cover
+cover: depth 24
+
+[engines]
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read -formal rosetta_stuff.sv
+read -formal stuff_props.sv
+read -formal stuff_fv.sv
+prep -top stuff_fv

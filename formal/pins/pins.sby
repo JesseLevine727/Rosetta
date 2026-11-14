@@ -1,0 +1,52 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_pins (pins.md).
+#      cd formal/pins && sby -f -d ref/build/pins_prove pins.sby prove
+#      (tasks: prove | bmc | cover; keep run directories under ref/build/)
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_pins.sv ref/rosetta_pins.sv
+# ============================================================================
+[files]
+rosetta_pins.sv ../../src/rosetta_pins.sv
+pins_props.sv
+pins_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded. Two engines in parallel, the first conclusive answer
+#         wins: smtbmc bitwuzla k-induction at depth 4 (the checker model
+#         mirrors the full spec state val/oe and every assertion spans at
+#         most two cycles, so the checker side is 1-inductive; the depth is
+#         slack for design-internal state) and abc pdr (needs no depth).
+#  bmc    supplementary, depth 12. The spec state is val[3:0], oe[3:0];
+#         every value is reached in 2 cycles (reset, then one PIN writing
+#         all four outputs); every assertion spans at most two cycles (s_en,
+#         s_wr are reached in the same 2 cycles), so depth 2 + 2 checks every
+#         transition from every reachable state; 12 is margin.
+#  cover  depth 10: deepest covers (c_restart, c_pin_val_only) need about 4.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+bmc: mode bmc
+bmc: depth 12
+cover: mode cover
+cover: depth 10
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read -formal rosetta_pins.sv
+read -formal pins_props.sv
+read -formal pins_fv.sv
+prep -top pins_fv

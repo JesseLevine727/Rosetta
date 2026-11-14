@@ -1,0 +1,69 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_chan (channels + timestamp).
+#      cd formal/chan && sby -f chan.sby [prove|bmc|cover]
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_chan.sv ref/rosetta_chan.sv
+# ============================================================================
+[files]
+rosetta_chan.sv ../../src/rosetta_chan.sv
+chan_props.sv
+chan_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded proof of every assertion. Two engines run in parallel;
+#         the first conclusive answer wins (an inconclusive induction step
+#         is UNKNOWN and does not end the task):
+#           smtbmc bitwuzla  k-induction, depth 4. Every checker property
+#                            relates at most two consecutive cycles and the
+#                            model mirrors the full spec state (data, valid,
+#                            ts), so the checker side is 1-inductive; the
+#                            depth is slack for the design's own state.
+#           abc pdr          needs no depth and finds design invariants
+#                            itself, should the RTL hold state k-induction
+#                            cannot close.
+#         Timestamp: stated inductively (a_ts_rst, a_ts_rel, a_ts_inc in
+#         chan_props.sv), so no engine has to unroll 2^32 cycles; u_wrap
+#         additionally checks the step from every ts value (free init).
+#  bmc    bounded cross-check, depth 20 (justification below).
+#  cover  every cover statement reachable, depth 16.
+#
+#  Depth justification. Every model state (data, valid) is reachable in 6
+#  cycles: reset (cycle 0), 4 puts (cycles 1-4, one lane op per cycle under
+#  the environment), 1 host clear of the channels that must end empty
+#  (cycle 5). Every assertion relates at most two consecutive cycles, so
+#  from step 6 on bmc checks every transition from every (data, valid)
+#  state; depth 20 adds a mid-trace reset plus a full refill (6 more) and
+#  margin. u_wrap starts in any output state, so bmc checks every transition
+#  from every state, ts = 0xFFFFFFFF included, at step 1. The bmc result is
+#  supplementary; `prove` is the unbounded result. Deepest cover: c_all_got
+#  (put then get on all four channels in one trace) = reset + 8 lane ops +
+#  1 = step 9; c_rst_mid_put = 4 puts + reset + put ~ step 8; wrap covers
+#  <= step 4. Depth 16 is that plus margin.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+bmc: mode bmc
+bmc: depth 20
+cover: mode cover
+cover: depth 16
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read_verilog -sv -formal rosetta_chan.sv
+read_verilog -sv -formal chan_props.sv
+read_verilog -sv -formal chan_fv.sv
+prep -top chan_fv

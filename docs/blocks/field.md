@@ -21,7 +21,7 @@ check unit and the stuffing unit.
 | `ts_i` | 16 | timestamp, low half |
 | `cfg_mode_i` | 2 | `TICK[1:0]` |
 | `lt_i`, `ct_i`, `st_i`, `spend_i`, `bt_run_i`, `bt_stop_i`, `ot_done_i` | 1 each | from `rosetta_tick` |
-| `honour_i` | 1 | `TICK[11]` (whether BAUD samples are delayed) |
+| `cfg_honour_i` | 1 | `TICK[11]` (whether BAUD samples are delayed) |
 | `d16_i` | 16 | edge interval |
 | `dedge_i`, `rxb_i`, `rxv_i` | 1 each | from `rosetta_coding` |
 | `stuff_next_i`, `stuff_bit_i` | 1 each | from `rosetta_stuff` |
@@ -32,6 +32,7 @@ check unit and the stuffing unit.
 | `pin_we_o`, `pin_mask_o[3:0]`, `pin_val_o[3:0]`, `pin_oe_o[3:0]` | | `PIN` effect, to `rosetta_pins`, `rosetta_delay`, `rosetta_coding` |
 | `crc_en_o`, `crc_bit_o` | 1 each | to `rosetta_crc` |
 | `stf_valid_o`, `stf_bit_o` | 1 each | to `rosetta_stuff` |
+| `cu_done_o`, `hold_o` | 1 each | the current op completes in this cycle (6.1, combinational); the `hold` flop. For proofs and covers only (not used by other blocks) |
 
 `busy_o = cu_v_o || bt_run_i` is formed in the lane top.
 
@@ -151,9 +152,11 @@ All rules in this section hold in cycles with `G` and the current op a
 **Receive kinds** (`SAMPLE`, `EXPECT`):
 
 - Release: `tx_rel = 1` and `rel <= 1` in the first cycle with `!rel` and
-  (`lt_i`, or `first && (early || cfg_mode_i in {RECOVER, PULSE})`).
+  (`lt_i`, or `first && ((early && !bt) || cfg_mode_i in {RECOVER, PULSE})`).
+  (`early` has no effect in `BAUD`, ruling 6.)
 - With `bt`: at each `lt_i`, `nl <= nl + 1` (counts the clock pulses the
-  BAUD timer makes for this field).
+  BAUD timer makes for this field); a sample that is not a bit gives one
+  back (5.3).
 
 ### 5.2 Status to `rosetta_tick`
 
@@ -172,18 +175,25 @@ each launch, to keep `lt -> tx_go -> request` short.)
 
 ### 5.3 Capture and sample
 
-`sv = st_i && (rxv_i || TX || bt)` (`rxv` matters only for non-BAUD
-receive; a BAUD-timed or exchange sample is always a bit).
+`sv = st_i && (rxv_i || TX)`: a sample is a bit unless `rxv_i = 0`
+(invalid differential pair, Manchester boundary, rising pulse edge); an
+`EXCHANGE` sample is always a bit, because its bit has already been sent
+(`lane.md` I13). In a BAUD-timed `SAMPLE`/`EXPECT`, a cycle with `st_i &&
+!rxv_i` gives the launch back: `nl` is decremented (not below 0; together
+with an `lt_i` in the same cycle it is unchanged), so `launch_req` asks for
+one more clock pulse and the field still receives n bits (ruling 20).
 
 **`DRIVE`**, at `ct_i` with `lnch`: `lnch <= 0`. If `!lstf` (a data bit):
 `crc_en = crcf`, `crc_bit = SR[opos0]`, `SR <= ROT(SR)`, `bc <= bc + 1`.
 Completion check (6.1) with the new `bc`. A `ct_i` with `lnch = 0` is
 ignored.
 
-**`EXCHANGE`**, at `ct_i` with `lnch`: `lnch <= 0`; and when `bt && !honour_i`
-(the sample comes later): `pstf <= lstf`. The sample is processed:
+**`EXCHANGE`**, at `ct_i`: `lnch <= 0`; and when `bt && !cfg_honour_i`
+(the sample comes later): `pstf <= lstf || !lnch` (a capture with no bit of
+this field launched, which only a `BAUD` seek can leave behind, `lane.md`
+I20, gets its sample discarded). The sample is processed:
 
-- `bt && !honour_i`: at `sv` (the pending sample matures): stuffness `ss =
+- `bt && !cfg_honour_i`: at `sv` (the pending sample matures): stuffness `ss =
   pstf`.
 - otherwise: at `sv` in a cycle where `ct_i && lnch` (same cycle): `ss =
   lstf`. A sample without a launched bit is ignored.
@@ -259,12 +269,12 @@ In a cycle with `G`:
 | Op | Completes in the cycle where |
 |---|---|
 | `FIELD` `DRIVE` | a `ct_i` processed by 5.3 leaves `bc == n` and `!(stx && stuff_next_i)` |
-| `FIELD` `EXCHANGE` | a sample processed by 5.3 (data or discarded) leaves `bc == n` and `!(stx && stuff_next_i)` |
+| `FIELD` `EXCHANGE` | a sample processed by 5.3 (data or discarded) leaves `bc == n`, `!(stx && stuff_next_i)`, and no wire bit launched but not yet captured (`lnch` is 0 at the end of the cycle: a trailing stuff bit launched before the last data sample must be captured and sampled first) |
 | `FIELD` `SAMPLE`/`EXPECT`, not seek | the n-th data bit is taken and `!srx`; or `tail = 1` and (`!stuff_next_i`, or `sv` at a stuff position) |
 | `FIELD` seek | the window matches (5.3) |
 | `FIELD` with `hold = 1` | the result register can take the result (6.2) |
-| `PIN` | `pin_we` with `wait == 0`, or `eff` and `ot_done_i` (7.1) |
-| `RAW DRIVE` | `ot_done_i` after its effect (7.2) |
+| `PIN` | `pin_we` with `wait == 0` or `ot_done_i`; or `eff` and `ot_done_i` (7.1) |
+| `RAW DRIVE` | `raw_go` and `ot_done_i`; or `eff` and `ot_done_i` (7.2) |
 | `RAW SAMPLE` | `dedge_i` (7.3) |
 
 `stuff_next_i` in the `DRIVE`/`EXCHANGE` rows is the value in the
@@ -281,7 +291,9 @@ At completion (first time, not `hold`): the op's value `V` is
 - `FIELD`, seek: `{16'h0, WIN(...)}` (the matched window);
 - `RAW SAMPLE`: `{16'h0, d16_i}`.
 
-and `SR <= V` (for `RAW DRIVE` and `PIN`, `SR` is not changed here).
+and `SR <= V`, also in a cycle that enters `hold` below (so a held seek or
+`RAW SAMPLE` keeps its value in `SR`; for `RAW DRIVE` and `PIN`, `SR` is not
+changed here).
 
 Acceptance `acc = !res_v || res_ack_i`. Destination `dst` (decoded, 2.1).
 
@@ -327,7 +339,8 @@ changes no output.
 Effect cycle e: as a `PIN` with `align = 0`. In e: `raw_go = 1`,
 `raw_lvl = level` (`rosetta_coding` maps and drives `out0`, never delayed),
 `ot_start = 1`, `ot_raw = 1`, `ot_n = SR[15:0]`, `eff <= 1`. It completes at
-`ot_done_i`, so the next op is current at `e (+) max(SR[15:0], 1)`: the level
+`ot_done_i` (possibly in e itself), so the next op is current at
+`e (+) max(SR[15:0], 1)`: the level
 is held for exactly that many prescaled cycles (at prescale 1). No result.
 
 ### 7.3 `RAW SAMPLE`
@@ -357,13 +370,20 @@ register; `cu_v_o = cu_v`; `pk_v_o = pk_v`.
 
 ## 9. Required properties
 
-Assumptions: the sequencer guarantees of `lane.md` 2.1; tick strobes may be
-free except: `st_i` only when `spend_i` or (`!bt` or `honour_i`) as in
-`tick.md` 5, and `lt_i`, `ct_i` never in the same cycle; `stuff_next_i` may
-change only in the cycle after `stf_valid` or `clear` (model the stuffing
-unit, or instantiate it).
+Assumptions: the sequencer guarantees of `lane.md` 2.1; `cfg_mode_i` and
+`cfg_honour_i` change only in cycles with `cu_v_o = pk_v_o = 0` or
+`run_i = 0`; tick strobes may be free except: `lt_i`, `ct_i` never in the
+same cycle; with `bt`, `lt_i` only with `launch_req_o`; with `bt` and
+`!cfg_honour_i`, `spend_i` rises exactly in the cycle after `ct_i &&
+cu_smp_o`, falls exactly in the cycle after `st_i` (or abort, halt), `st_i`
+only while `spend_i`, and no `ct_i` while `spend_i` (`tick.md` 4.1, 5);
+otherwise `spend_i = 0`; `stuff_next_i` may change only in the cycle after
+`stf_valid` or `clear` (model the stuffing unit, or instantiate it).
+`bt`, `pk` and `cu` decodes are shadowed by the checker from the park buses
+and promotions (`pk_v_o` falling without abort or halt).
 
-1. **Park and promote** exactly as section 3; the load of 4.1 at promotion.
+1. **Park and promote** exactly as section 3, with `cu_done_o` as the
+   completion; `cu_done_o` follows 6.1; the load of 4.1 at promotion.
 2. **Bit count**: a field completes after exactly n data bits; every data
    bit is exactly one `INS`/`ROT` and (with `crcf`) one `crc_en`; stuff
    bits make none.
@@ -388,28 +408,41 @@ unit, or instantiate it).
 8. **CRC feed**: `crc_en` only for data bits of `crcf` fields, with
    `crc_bit` = the driven bit (`DRIVE`, `EXCHANGE`) or sampled bit
    (`SAMPLE`, `EXPECT`).
-9. **Launch absorption**: with `lnch = 1`, `lt_i` produces no `tx_go`;
-   `early` gives exactly one `tx_go` in s and none at the next `lt_i` before
-   a capture.
+9. **Launch absorption**: between a `tx_go` and the next `ct_i`, `lt_i`
+   produces no `tx_go`; `early` gives exactly one `tx_go` in s and none at
+   the next `lt_i` before a capture.
 10. **Release**: a receiving field asserts `tx_rel` at most once, never
     `tx_go`; a `DRIVE` never `tx_rel`.
 11. **Result register**: never overwritten while `res_v = 1` without an ack
     in that cycle; stable outputs while valid; one result per completing op
     with a destination; tag applied iff `dst` in {`HOSTQ`, `CAP`} and source
     not `IMM`.
-12. **Hold**: while `hold`, no promotion, no strobe to coding, CRC or
-    stuffing.
-13. **`PIN`**: exactly one `pin_we` per `PIN`, at the effect cycle of 7.1;
-    the next promotion is at the end of `(e (+) wait*Pd) - 1` (by `ot_done`).
+12. **Hold**: `hold_o` rises only at the end of a cycle with `cu_v_o`,
+    `res_valid_o` and `!res_ack_i`, for a `FIELD` or `RAW SAMPLE` with a
+    destination (never a `PIN`, `RAW DRIVE` or `dst = NONE`); while
+    `hold_o`, no promotion, no strobe to coding, CRC or stuffing, and
+    `cu_done_o` exactly in the first cycle with `!res_valid_o || res_ack_i`.
+13. **`PIN`**: exactly one `pin_we` per `PIN`, at the effect cycle e of 7.1;
+    `ot_start` in e iff `wait != 0`; the `PIN` completes in e if `wait == 0`,
+    else at the first `ot_done_i` at or after e (e itself included).
 14. **`M`** changes only by `CRCCHK` or an `EXPECT` completion.
 15. **Abort**: in an abort cycle no output strobe; afterwards `cu_v = pk_v
     = 0` and `SR`, `M`, result register unchanged.
-16. **`dst_busy_o`** formula; `launch_req`/`fld_next` formulas (5.2).
+16. **`dst_busy_o`** formula (`lane.md` 7.6); `fld_next_o` equals the
+    5.2 formula over `launch_req_o` and the shadowed `pk`/`cu` decodes.
+    `launch_req_o` implies `cu_fld_o`, `bt` and `!hold_o`. For a transmit
+    kind it is 0 from each `tx_go` until the next `ct_i`, and 0 once the
+    field's wire bits (property 7) are all launched; for a receive kind
+    without seek it is 1 until the field has had n launches (net of given-back
+    launches, 5.3).
 17. **Covers**: each kind with each bit order; n = 1 and n = 32; a trailing
     transmit stuff bit; a receive stuff bit inside and after a field; seek
     matching after more than n bits; `EXPECT` mismatch; `hold`; `early` in
     `EDGE`; `PIN` with `align` in `EDGE`; `RAW DRIVE` and two back-to-back
-    `RAW SAMPLE`s; `pk_srcdep` deferral; source `CRC` and source `SR`.
+    `RAW SAMPLE`s; `pk_srcdep` deferral; source `CRC` and source `SR`;
+    a BAUD `EXCHANGE` whose trailing stuff bit launches before the last data
+    sample; a `PIN` with `ot_done_i` in its effect cycle; a BAUD `SAMPLE`
+    giving back a launch.
 
 ## 10. Worked timing
 

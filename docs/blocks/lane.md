@@ -96,7 +96,7 @@ be wrong (no deadlock: every rule below is total).
 | `park_full_o` | 1 | the parked-operation register is occupied |
 | `res_valid_o` | 1 | a result is waiting for delivery |
 | `res_dst_o` | 4 | its destination operand code (never 15, 6, 12, 13, 14) |
-| `res_data_o` | 32 | its value, already tagged |
+| `res_data_o` | 32 | its value, already tagged when the destination is `HOSTQ` or `CAP` (isa 3.1) |
 | `res_ts_o` | 16 | **new**: `ts_i` latched in the cycle the result was produced (section 7.5) |
 | `dst_busy_o` | 4 | bit n: `Rn` is the destination of the current op, the parked op or the held result (`MEM` marks `R3`) |
 | `m_o` | 1 | the `M` flag |
@@ -189,15 +189,15 @@ the **new layout** of the overseer ruling on F8/F9 (section 12, item I17).
 | 0 | `TICK` | `[1:0]` mode, `[3:2]` prescale, `[5:4]` clock input, `[6]` capture on falling edge, `[7]` clock output on `out3`, `[8]` clock idle level, `[9]` clock output open-drain, `[10]` `rest`, `[11]` `stretch_honour`, `[12]` `stretch_hold` | 13 | tick, field, pins |
 | 1 | `PERIOD` | `[15:0]` | 16 | tick |
 | 2 | `PERIOD2` | `[15:0]` | 16 | tick |
-| 3 | `THR01` | `[7:0]` `THR0`, `[15:8]` `THR1` | 16 | tick, coding |
-| 4 | `THR2L` | `[7:0]` `THR2`, `[15:8]` launch delay | 16 | tick, delay |
+| 3 | `THR01` | `[7:0]` `THR0` (`THR1` deleted, ruling 23) | 8 | tick |
+| 4 | `THR2L` | `[15:8]` launch delay (`THR2` deleted, ruling 23) | 8 | tick, delay |
 | 5 | `CODE` | `[1:0]` rx coding, `[3:2]` tx coding, `[5:4]` data input, `[6]` invert, `[7]` data open-drain, `[8]` differential out, `[9]` differential in, `[10]` delay applies to clock, `[11]` delay prescaled | 12 | coding, tick, delay |
 | 6 | `PULSE` | `[7:0]` high time for 0, `[15:8]` high time for 1 | 16 | tick, coding |
 | 7 | `STUFF` | `[2:0]` N, `[3]` mode, `[4]` enable, `[5]` violation raises event 3 | 6 | stuff, events |
 | 8 | `CRCPOLY` | `[31:0]` | 32 | crc |
 | 9 | `CRCCFG` | `[4:0]` width-1, `[5]` init all ones, `[6]` final XOR | 7 | crc |
 | 10-13 | `EVC0`-`EVC3` | `[1:0]` signal A, `[2]` level L, `[5:3]` trigger (0 off, 1 A at L, 2 A edge to L, 3 A any edge, 4 A and B both low, 5-7 off), `[7:6]` signal B, `[9:8]` B must be (0 any, 1 high, 2 low, 3 never), `[15:10]` K | 4 x 16 | events |
-| | **Total** | | **214** | |
+| | **Total** | | **198** | |
 
 The CRC unit's `cfg_init_i` is `{32{CRCCFG[5]}}`, `cfg_xorout_i =
 CRCCFG[6]`, `cfg_width_m1_i = CRCCFG[4:0]`, `cfg_poly_i = CRCPOLY`.
@@ -205,14 +205,17 @@ CRCCFG[6]`, `cfg_width_m1_i = CRCCFG[4:0]`, `cfg_poly_i = CRCPOLY`.
 ### 5.2 Write pulses
 
 `u_cfg` outputs, all functions of `cfg_we_i`, `cfg_reg_i`, `cfg_hi_i` and
-`run_i` in the write cycle t (combinational: the inputs are sequencer flops):
+`run_i` in the write cycle t (combinational: the inputs are sequencer flops).
+"Write to r" means `run_i && cfg_we_i && cfg_reg_i == r && !cfg_hi_i`; a
+high-half write is a write only for register 8 (it changes nothing elsewhere,
+so it has no side effect either, I21):
 
 | Pulse | Condition in cycle t | Effect |
 |---|---|---|
 | `wr_tick` | write to 0 | `u_tick` resets its timing state at the end of t; in t+1 it requests the clock idle level (`tick.md` 3.3). `u_code` resets its Manchester phase; `u_dly` drops a pending change |
 | `wr_code` | write to 5 | `u_code` resets its Manchester phase (`coding.md`) |
 | `wr_stuff` | write to 7 | `u_stuff.clear_i = 1` in cycle t (satisfies `stuff.md`: cfg changes only in a cycle with `clear_i`) |
-| `wr_crc` | write to 8 (either half) or 9 | `u_crc.init_i = 1` in cycle t **and** in t+1 (`crcw_q`), section 5.3 |
+| `wr_crc` | write to 8 (either half, `cfg_hi_i` ignored) or 9 | `u_crc.init_i = 1` in cycle t **and** in t+1 (`crcw_q`), section 5.3 |
 | `wr_evc[k]` | write to 10+k | `u_evt` restarts detector k at the end of t (`events.md` 3.3) |
 
 ### 5.3 Why `wr_crc` initialises twice
@@ -243,8 +246,12 @@ Every signal below is combinational within the cycle named, unless it is
 marked *reg* (a flop output). "Driver" is the block that computes it. No
 signal in this table depends combinationally on another signal that depends
 on it (the loop-free order is: `u_cfg`, `u_code` receive side, `u_field`
-status, `u_tick`, `u_field` actions, `u_code` transmit side, `u_dly`,
-`u_pins`).
+status, `u_tick`, `u_field` actions, `u_tick`'s `ot_done`, `u_field`
+completion and promotion, `u_code` transmit side, `u_dly`, `u_pins`).
+`ot_done` is the one `u_tick` output that may depend on a `u_field` action in
+the same cycle: a timed operation whose count ends at the first strobe after
+its effect cycle e completes in e itself (`tick.md` 7). `dcap` affects only
+`u_tick` state.
 
 ### 6.1 `u_field` to `u_tick`
 
@@ -256,7 +263,7 @@ status, `u_tick`, `u_field` actions, `u_code` transmit side, `u_dly`,
 | `cu_smp` | 1 | *reg*. ... a `FIELD` of kind `SAMPLE`, `EXCHANGE` or `EXPECT` |
 | `pk_v` | 1 | *reg*. An operation is parked |
 | `launch_req` | 1 | the current `FIELD` has a wire bit to launch at a BAUD launch point (`field.md` 5.2). Function of `u_field` flops and `u_stuff.stuff_next_o` only |
-| `fld_next` | 1 | a field launch is coming: a BAUD-timed `FIELD` is parked and either no op is current or the current op is a `FIELD` with no wire bit left to launch (`field.md` 5.2). Function of flops and `stuff_next` only |
+| `fld_next` | 1 | a field launch is coming: a BAUD-timed `FIELD` is parked and either no op is current or the current op is a `FIELD` with `launch_req = 0` (exactly `field.md` 5.2; `u_tick` looks at it only at an end of bit, where `launch_req = 0` means no wire bit left, `HOLD`, or a field that is not BAUD-timed). Function of flops and `stuff_next` only |
 | `fld_first` | 1 | t is the first cycle in which the current `FIELD` is current (its start cycle s) |
 | `ot_start` | 1 | start the operation timer in this cycle (the effect cycle of a `PIN` with wait > 0 or of a `RAW DRIVE`) |
 | `ot_raw` | 1 | with `ot_start`: 0 = count `W * Pd` strobes with `W = ot_n[11:0]`; 1 = count `max(ot_n, 1)` strobes |
@@ -295,6 +302,7 @@ status, `u_tick`, `u_field` actions, `u_code` transmit side, `u_dly`,
 | `tx_rel` | field | 1 | a receiving field releases the data output in this cycle |
 | `raw_go` | field | 1 | a `RAW DRIVE` takes effect in this cycle |
 | `raw_lvl` | field | 1 | its level |
+| `dedge` | code | 1 | (also to `u_tick`) data edge; `RAW SAMPLE` completes on it |
 | `rxb` | code | 1 | the decoded received bit (valid with `st`) |
 | `rxv` | code | 1 | this `st` carries a bit (0: no bit, for example a Manchester boundary edge or an invalid differential pair) |
 
@@ -319,7 +327,7 @@ status, `u_tick`, `u_field` actions, `u_code` transmit side, `u_dly`,
 
 | Signal | Driver | To | Meaning |
 |---|---|---|---|
-| `pt` | tick | evt, dly, field | prescale strobe |
+| `pt` | tick | evt, dly | prescale strobe |
 | `crc_en`, `crc_bit` | field | crc | `en_i`, `bit_i` |
 | `stf_valid`, `stf_bit` | field | stuff | `bit_valid_i`, `bit_i` |
 | `stuff_next`, `stuff_bit` | stuff | field, tick | `stuff_next_o`, `stuff_bit_o` |
@@ -372,8 +380,8 @@ F1 (model D30):
 |---|---|---|
 | EDGE, RECOVER, PULSE receive | the last capture/sample cycle c | c+1 (next op current at c+1, or c+2 if `pk_srcdep`) |
 | BAUD and PULSE transmit, `DRIVE` | the last capture tick c | next `FIELD` current at c+1 (c+2 if `pk_srcdep`) and launches at the end of the last bit; a `PIN` or `RAW DRIVE` takes effect when the timer stops |
-| BAUD, sampling kinds | the last sample, RTRIP cycles after the last capture tick (at the capture tick with `stretch_honour`) | as above |
-| `PIN`, `RAW DRIVE` | the last cycle of its wait: `(e (+) N) - 1`, or e when N = 0 | next op current exactly at `e (+) N` |
+| BAUD, sampling kinds | the last sample, RTRIP cycles after the last capture tick (at the capture tick with `stretch_honour`; RTRIP after the delayed capture edge with the clock delayed, I22) | as above |
+| `PIN`, `RAW DRIVE` | the last cycle of its wait: `(e (+) N) - 1` (which is e itself when the first strobe after e ends the count), or e when N = 0 | next op current exactly at `e (+) N` (`e + 1` when N = 0; one cycle later if it is `pk_srcdep`) |
 | `RAW SAMPLE` | the cycle of the data edge it measures | next cycle |
 
 `busy_o = cu_v || bt_run`. So `busy_o` stays 1 after a BAUD field's
@@ -382,13 +390,23 @@ completion until the end of its last bit, and a sync instruction (`HALT`,
 
 **Gap-free.** Consecutive `FIELD`s are gap-free (the second launches at the
 first one's end of last bit, or at its own first launch tick in EDGE and
-RECOVER) iff the second is parked by the end of the first one's completion
-cycle, and in BAUD additionally `P2d * prescale >= 1` for `DRIVE`
-(`>= 2` with source `CRC`/`SR`) and `P2d * prescale >= RTRIP + 1` for
-sampling kinds without `stretch_honour` (`RTRIP + 2` with source `CRC`/`SR`).
+RECOVER) iff the second is current by then. It is current 2 cycles after its
+park, but never before the cycle after the first one's completion (2 cycles
+after with source `CRC`/`SR`, `pk_srcdep`). So it is gap-free when it is
+parked by the end of the first one's completion cycle and, in BAUD, the end
+of the last bit comes at least 1 cycle after that completion (2 with source
+`CRC`/`SR`). The end of the last bit is `c (+) P2d` for a last capture tick
+c; completion is at c for `DRIVE` (and for any kind with `stretch_honour`)
+and at `c + RTRIP` for sampling kinds (`c + D + RTRIP` with the clock delayed
+by D cycles). At prescale 1 this means `P2d >= 1` (2) for `DRIVE` and
+`P2d >= RTRIP + 1` (`RTRIP + 2`) for sampling kinds without honour. At
+prescale P, `c (+) P2d` can come as early as `c + (P2d - 1) P + 1`, so the
+guarantee is `(P2d - 1) P + 1` at least the same numbers. A field parked
+later is still gap-free if it is current by the end of the last bit.
 When the next BAUD-timed field is already parked but not yet current at the
 end of the previous bit (the previous field's last sample is still pending,
-or its promotion is deferred by `pk_srcdep`), the timer **holds** at the end
+it is in an overrun `HOLD` (7.5), or the promotion is deferred by
+`pk_srcdep`), the timer **holds** at the end
 of the bit with the clock at the capture level and launches as soon as the
 field is current (`tick.md` 4.1). With nothing parked it stops. It never inserts an
 idle-level clock pulse between parked fields.
@@ -416,11 +434,13 @@ when an event ends a `WAIT` timeout):
 ### 7.5 Results
 
 A completing `FIELD` or `RAW SAMPLE` with destination other than `NONE`
-produces a result `{dst, tagged(value, tag), ts}` (`field.md` 6.2). In the
+produces a result `{dst, value, ts}` (`field.md` 6.2). In the
 completion cycle c:
 
 - If `res_valid_o = 0` or `res_ack_i = 1` in c: at the end of c the result
-  register takes it, `res_valid_o = 1` from c+1, `res_ts_o = ts_i(c)`.
+  register takes it, `res_valid_o = 1` from c+1, `res_ts_o = ts_i(c)`. The
+  value is `tagged(value, tag)` only for destinations `HOSTQ` and `CAP`
+  (isa 3.1); otherwise it is the plain value.
 - Otherwise (**overrun**): the op enters `HOLD`. It stays current
   (`busy_o = 1`, nothing is promoted), its value stays in `SR`, and it
   completes in the first cycle in which the register can take it (same
@@ -442,10 +462,11 @@ is exact when the delivery starts within 65,535 cycles of completion.
 
 - `park_full_o = pk_v`.
 - `busy_o = cu_v || bt_run`.
-- `dst_busy_o[n] = (cu_v && D(cu) == n) || (pk_v && D(pk) == n) ||
+- `dst_busy_o[n] = (cu_v && R(D(cu)) == n) || (pk_v && R(D(pk)) == n) ||
   (res_valid_o && R(res_dst) == n)`, where for an op `D` is its destination
   if it is a `FIELD`, or a `RAW` with direction sample, and none otherwise; and
-  `R(d) = 3` for `d = MEM`, `d` for `d` in 0-3, none otherwise. Only `FIELD`
+  `R(d) = 3` for `d = MEM`, `d` for `d` in 0-3, none otherwise (so `MEM`
+  marks `R3` from the park on, because its delivery increments `R3`). Only `FIELD`
   and `RAW SAMPLE` ops have destinations; a `PIN` (including a `WAIT`
   timeout, whose bits 13:10 belong to its wait count) never marks one.
 - `m_o`, `sr_o`, `crc_o`: registered state. While `busy_o = park_full_o = 0`
@@ -472,7 +493,12 @@ held in `clear_i`. `out_oe_o = 0` in t itself (gating). So from t+1:
 Block properties are in each block spec. These are the integration
 properties of `rosetta_lane` as a whole. The checker may keep shadow copies
 of the mode registers from the `SETM` strobes, and counters of parks and
-results.
+results. Completion and promotion are not visible at the lane ports; the
+properties that need them (6, and the exact halves of 5, 9 and 13) are proved
+by composition: `field.md` property 1 (against its observation output
+`cu_done_o`), `events.md` 4 and `tick.md` 10. The lane checker states only
+the port-level halves below. Liveness (a parked op eventually completes)
+is not claimed: fields wait for external clocks and edges.
 
 1. **Halted lane drives nothing.** `out_oe_o = 0` in every cycle with
    `run_i = 0`. If `run_i = 0` in cycle t, then in t+1: `busy_o`,
@@ -488,23 +514,32 @@ results.
    cycle t, then `busy_o = park_full_o = 0` in t+1, and
    `res_valid_o(t+1) = res_valid_o(t) && !res_ack_i(t)`.
 5. **Park.** `park_full_o` rises only in the cycle after a `park_we_i`; it
-   falls only at the end of a cycle with `PROMOTE` (section 7.2), `abort_i`,
-   or `run_i = 0`.
-6. **Promotion is exactly** `PROMOTE(p)`, where the checker evaluates
-   `cu_done` from the completion rules of section 7.3 (for `PIN` and `RAW
-   DRIVE` with its own count of strobes from the effect cycle).
-7. **No result lost, none invented.** Every promoted `FIELD` or `RAW SAMPLE`
-   with destination other than `NONE` that is not aborted produces exactly one
-   `res_valid_o` episode, in issue order; no other episode occurs.
+   stays 1 in the cycle after the park (promotion is at the end of t+1 at
+   the earliest); in a cycle with `park_full_o = 1`, `busy_o = 0`,
+   `run_i = 1` and no `abort_i` it falls at the end of that cycle (an idle
+   lane promotes at once); otherwise it falls only at the end of a cycle with
+   `busy_o = 1` (a completion), `abort_i` or `run_i = 0`.
+6. **Promotion is exactly** `PROMOTE(p)` (composition: `field.md` property
+   1 with `cu_done_o`).
+7. **No result invented, none duplicated, order kept.** Each `res_valid_o`
+   episode (and each result loaded in a `res_ack_i` cycle) matches a distinct
+   earlier park of a `FIELD` or `RAW SAMPLE` with destination other than
+   `NONE`, with `res_dst_o` equal to that destination, in park order, and none
+   matches a park discarded by `abort_i` or halt before it was promoted.
    `res_dst_o`, `res_data_o`, `res_ts_o` are stable from the rise of
-   `res_valid_o` to the end of the cycle with `res_ack_i`.
+   `res_valid_o` to the end of the cycle with `res_ack_i`. (Cover: a result
+   for each such park in a bounded run.)
 8. **`dst_busy_o`** equals the formula of 7.6 (checker shadows the parked
    and current destinations from `park_ctl_i`).
-9. **`M`** changes only at the end of a cycle with `cmd_i = 2` (to
-   `crc_state == cmd_data_i`) or in which an `EXPECT` completes.
+9. **`M`** changes only at the end of a cycle with `cmd_i = 2` or with
+   `busy_o = 1`; if no `EXPECT` (`park_op_i = 0`, `park_ctl_i[27:26] = 3`) has
+   been parked since the last `cmd_i = 2` (or reset), it changes only at a
+   `cmd_i = 2`. (Exactly at the `EXPECT`'s completion: `field.md` 14.)
 10. **`busy_o`** stays 1 from the start of a BAUD field to the end of its
-    last bit: with the clock output enabled, it does not fall before the
-    clock has made its end-of-bit change.
+    last bit: with the clock output enabled and no clock delay, it does not
+    fall before the clock has made its end-of-bit change (with the clock
+    delayed, the change is requested before `busy_o` falls and lands up to D
+    cycles later; a halt in between cancels it).
 11. **Abort.** After `abort_i` in cycle t: `park_full_o(t+1) = 0`;
     `sr_o(t+1) = sr_o(t)`; `crc_o(t+1) = crc_o(t)`; `res_valid_o(t+1) =
     res_valid_o(t)`; `out_val_o(t+1) = out_val_o(t)` and `out_oe_o(t+1) =
@@ -518,8 +553,9 @@ results.
     hardware half; `SAMPLE`/`EXPECT` only ever release outputs.)
 13. **Events reach the sequencer one cycle after they fire**: `ev_pend_o[k]`
     rises only in the cycle after a detector-k fire (`events.md`) or, for
-    k = 3, after `u_stuff.violation_o` with `STUFF[5]`; it falls only after
-    `ev_clr_i[k]` (without a fire in the same cycle) or `run_i = 0`.
+    k = 3, after `u_stuff.violation_o` with `STUFF[5]` (composition:
+    `events.md` property 5). At the lane ports: it rises only after a cycle
+    with `run_i = 1`, and falls only after `ev_clr_i[k]` or `run_i = 0`.
 14. **Structural:** no combinational path from any input except `run_i` to
     any output; from `run_i` only to `out_oe_o`.
 15. **Covers:** gap-free back-to-back fields in BAUD, EDGE and RECOVER; a
@@ -558,15 +594,17 @@ IMM 1`, both destination `NONE`. A is parked at t = 8, B at t = 13. Column
 
 Bits are 6 cycles each with no gap (out0 changes at 11, 17, 23). `busy_o`
 stays 1 until the clock's end-of-bit change at 28. If an `abort_i` came at
-t = 21 instead, B would be discarded at the end of 21, the timer stopped,
-out0 and out3 would keep 0 and 1, `SR` would keep A's value, and `busy_o`
-would be 0 from 22.
+t = 18 instead (a lane-0 X cycle), A would be abandoned before its last
+capture and B discarded at the end of 18, the timer stopped, out0 and out3
+would keep 0 and 0, `SR` would keep A's partial value (`0b01`, rotated
+once), and `busy_o` would be 0 from 19. (After 19, `SR` holds B's source:
+the load is at promotion.)
 
 ## 11. Flop estimate (against about 700)
 
 | Block | Flops | Main items |
 |---|---|---|
-| `u_cfg` mode registers | 214 | table 5.1 |
+| `u_cfg` mode registers | 198 | table 5.1 (`THR1`, `THR2` deleted, ruling 23) |
 | `u_field` | 199 | parked op 63, current op 30, `SR` 32, bit counters 12, flags 8, result 53 (incl. 16 timestamp), `M` 1 |
 | `u_crc`, `u_stuff` | 37 | 32 + 5 (existing RTL) |
 | `u_tick` | 80 | prescaler 9, BAUD/RECOVER/stretch counter 16, edge interval 16, operation timer 28, sample delay 3, state 8 |
@@ -575,12 +613,12 @@ would be 0 from 22.
 | `u_evt` | 40 | 4 x (6-bit window, active, done, level) + 4 pending |
 | `u_pins` | 8 | values and enables |
 | top | 5 | `in_q` 4, `crcw_q` 1 |
-| **Total** | **605** | |
+| **Total** | **589** | |
 
-Against the brief's 700 this leaves about 95. Like for like with the probe
+Against the brief's 700 this leaves about 111. Like for like with the probe
 (698 flops, of which 116 per lane of program state moved to the sequencer,
-`top.md` 1) the lane is about 23 over (605 vs 582). Options, cheapest first:
-drop `THR1`/`THR2` (-16, they have no data-path use: I11); share the
+`top.md` 1) the lane is about 7 over (589 vs 582). Options, cheapest first:
+share the
 operation timer's 16-bit counter with the BAUD counter outside RECOVER
 (-16, costs a rule that a `WAIT` timeout in RECOVER is not exact); trim the
 current-op register to the decoded fields (-4); latch-based mode registers
@@ -676,7 +714,11 @@ Implemented: new ports `ts_i[15:0]` and `res_ts_o[15:0]`; the lane latches
 the counter's low half in the completion cycle; the sequencer rebuilds the
 high half (7.5). Proposed: "The timestamp is the counter value in the cycle
 the field completed (its last capture), less the fixed input delay that the
-compiler subtracts."
+compiler subtracts." In `BAUD` without honour the completion is the last
+sample, a fixed RTRIP (plus any clock delay) after the last capture tick;
+the compiler subtracts that too, so ruling 12's exactness holds. A result
+held back by an overrun `HOLD` carries the time of its late completion
+(overrun is a schedule error).
 
 **I10. RECOVER (D5, F24).** isa 2 "half a `PERIOD` after it; any data edge
 restarts the bit timer". Proposed: "The bit timer runs continuously. A data
@@ -692,7 +734,8 @@ since the previous edge compared with `THR0`-`THR2`"; `CODE[1:0] = 3`
 edge, `1` iff the pulse lasted at least `THR0`; Manchester receive uses
 `THR0` as the short/long boundary. `THR1` and `THR2` then have no use in the
 data path. Proposed: say so, and either delete `THR1`/`THR2` (16 flops) or
-define 2-bit symbols. Recommend deleting.
+define 2-bit symbols. Recommend deleting. **Ruling 23: deleted**;
+registers 3 and 4 keep only `THR0` and the launch delay (table 5.1).
 
 **I12. Manchester (arch 4.2).** Implemented (`coding.md`): transmit first
 half `~bit`, second half `bit` (IEEE 802.3; `invert` gives the other
@@ -709,7 +752,13 @@ bit is captured. Without this, a USB receiver captures one bit of SE0 into
 the CRC before the EOP event can abort the field (T6). Proposed: "With
 differential input, `in[data ^ 1]` is the complementary line. While both
 lines are equal the data input holds its last valid level and no bit is
-captured."
+captured." **Ruling 20 accepted.** A BAUD-timed `SAMPLE`/`EXPECT` whose
+sample falls on an invalid pair also gives back that launch (`field.md`
+5.3), so the timer makes one more clock pulse and the field still gets n
+bits. `EXCHANGE` takes every sample as a bit, because its bit has already
+been sent and a dropped sample would leave it short with nothing left to
+launch; differential input with `EXCHANGE` is therefore not supported (no
+protocol needs it). Overseer: confirm this limit.
 
 **I14. Invert, open-drain, differential output (F26).** isa 4 `CODE[6]`,
 `[7]`, `[8]`. Proposed: "`invert` applies to receive and transmit.
@@ -738,12 +787,8 @@ A edge to level L, 2 A any edge, 3 A and B both low); `[6:5]` signal B;
 level L, 3 A any edge, 4 A and B both low); `[7:6]` B; `[9:8]` B must be (0
 anything, 1 high, 2 low); `[15:10]` K." Semantics in `events.md`: windows,
 one fire per episode for triggers 1 and 4, a write restarts the detector.
-**Open:** the overseer ruled that every undefined code halts. Trigger 5-7 and
-B-must 3 arrive as `SETM` data, often from a register, so halting needs the
-sequencer to decode `SETM EVC` values in its D cycle (a 3-bit and a 2-bit
-compare). The lane treats them as "off" and "never", which is safe either
-way. Decide: sequencer halts (add to `sequencer.md` 5.7), or isa says
-"reserved: acts as off".
+**Ruling 21:** trigger 5-7 and B-must 3 act as "off" and "never"; the
+sequencer does not decode them.
 
 **I18. K range.** isa 4: "held for K more prescaled cycles". With 6 bits,
 K <= 63 prescaled cycles: 1.05 us at prescale 1. Enough for I2C (K = 18),
@@ -762,7 +807,14 @@ event 3 in addition to `EVC3`'s detector (which can be turned off)."
 field length until the last `n` bits equal the source". Implemented for
 `n <= 16` (the pattern is kept in `SR[31:16]`, no extra flops); larger `n`
 acts as 16. Proposed: append "(`n` up to 16; source `IMM` cannot seek because
-the immediate uses the `seek` bit)".
+the immediate uses the `seek` bit)". **Limit (review, 14 Nov):** with `BAUD`
+timing and no honour, the bit after the matching one is already launched
+when the end of a bit comes at or before its sample. That clock pulse then
+belongs to the next operation: a `DRIVE` ignores it, an `EXCHANGE` discards
+its sample, a `SAMPLE`/`EXPECT` takes it as its first bit. Compiler rule:
+seek in `BAUD` needs `stretch_honour` or `(P2d - 1) * prescale + 1 >
+RTRIP` (plus any clock delay), unless the next field is meant to take that
+bit.
 
 **I21. `SETM` side effects (D8, D9, D42, F21).** isa 3.4 gives none.
 Proposed: "Writing `TICK` stops the timers and ends stretching; with the
@@ -803,7 +855,7 @@ SAMPLE`)."
 **I25. Receiving fields release the data output (D14).** Not in isa.
 Proposed: "`SAMPLE` and `EXPECT` release `out0` (and `out1` when
 differential) at their first launch tick, or when they start in `RECOVER`
-and `PULSE` modes or with `early`. A controller that reads with `SAMPLE`
+and `PULSE` modes or with `early` in `EDGE`. A controller that reads with `SAMPLE`
 leaves its data output released; use `EXCHANGE` to keep driving it."
 
 **I26. Start latency and the result register (sequencer 7).** An op parked
@@ -868,3 +920,42 @@ instruction.
   bit (I7), so the last bit is not lengthened (one cycle would be 2.5 % of a
   bit). Turnaround needs `SETM TICK`, which waits for the end of the last
   bit; 7.5 bits is ample.
+
+### 12.2 Cross-spec review corrections (14 Nov)
+
+Found by a cold review of the six lane specs against each other, the
+rulings and the fixed `crc.md`/`stuff.md`; all are applied in the specs.
+
+- **R1.** `EXCHANGE` with a trailing stuff bit in `BAUD`: the stuff bit can
+  be launched before the last data bit's sample; the field then completed
+  with a wire bit still launched, and the next field took its capture.
+  `EXCHANGE` now completes only when no launched bit is outstanding
+  (`field.md` 6.1), and a capture with nothing launched makes its sample a
+  discard (`field.md` 5.3).
+- **R2.** A timed op whose count ends at the first strobe after its effect
+  cycle completes in that cycle: `ot_done` may be combinational from
+  `ot_start` (`tick.md` 7), and `field.md` 6.1 completes a `PIN`/`RAW DRIVE`
+  on `ot_done` in its effect cycle (it required `eff`, which is set only at
+  the end of e).
+- **R3.** `early` released a receiving field's data output in `BAUD`
+  (ruling 6: `early` is `EDGE`/`RECOVER` only). Fixed in `field.md` 5.1.
+- **R4.** Ruling 20 in `BAUD` receive (I13): the sample is not a bit and its
+  launch is given back (`field.md` 5.3).
+- **R5.** Ruling 23: `THR1`, `THR2` removed (5.1, 11, I11); `THR0` is used by
+  `u_tick` only.
+- **R6.** Gap-free conditions restated in raw cycles; at prescale P the old
+  `P2d * prescale` form was optimistic by up to P - 1 cycles (7.3).
+- **R7.** Tags apply only to `HOSTQ`/`CAP` results (7.5, as `field.md` 6.2
+  and isa 3.1); `MEM` marks `R3` for current and parked ops too (7.6).
+- **R8.** High-half `SETM` writes have no side-effect pulses except on
+  `CRCPOLY` (5.2).
+- **R9.** A `PIN` cancels a pending launch-delay change only if it writes an
+  output that change writes (`tick.md` 9.2; it cancelled a pending `out0`
+  change for a `PIN` that wrote only `out1`).
+- **R10.** `PULSE` with a transmitting field uses the BAUD sample rule
+  (`tick.md` 5 said `BAUD` only).
+- **R11.** Observation outputs for proofs: `rosetta_field.cu_done_o`,
+  `hold_o`; `rosetta_tick.stretch_o`. Block assumptions on `cfg_` inputs
+  aligned with when the sequencer really writes them (idle lane), and
+  properties that named internal flops restated on ports (section 9,
+  `tick.md` 10, `field.md` 9, `coding.md` 5).

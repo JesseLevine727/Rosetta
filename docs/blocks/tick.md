@@ -54,11 +54,15 @@ the launch delay.
 | `d16_o` | 16 | *reg*. Edge interval, prescaled cycles, saturated |
 | `ge0_o` | 1 | `min(d16, 255) >= THR0` |
 | `creq_o`, `cpay_o[1:0]`, `creq_dly_o`, `creq_cap_o` | 1, 2, 1, 1 | clock output request (section 8) |
+| `stretch_o` | 1 | *reg*. The `stretch` flop (4.2). For proofs and covers only |
 
 Outputs marked *reg* are flops. The strobes are combinational from flops,
 `in_i`, `in_q_i`, `dline_i`/`dedge_i` (themselves combinational from
 `in_i` and a coding flop), the `rosetta_field` status signals (functions of
-flops) and `data_wait_i`, `abort_i`, `wr_tick_i`, `run_i`.
+flops) and `data_wait_i`, `abort_i`, `wr_tick_i`, `run_i`. Two exceptions:
+`ot_done_o` also depends on `ot_start_i`, `ot_raw_i`, `ot_n_i` in the same
+cycle (section 7), and `dcap_i` affects only the next state (section 5),
+never an output in the same cycle.
 
 ## 2. Definitions
 
@@ -206,10 +210,11 @@ stops, or holds if a transmitting field is parked behind a receiving one
 
 ## 5. Sample strobe and pending sample
 
-- `EDGE`, `RECOVER`, `PULSE` receive: `st` as in section 4 (same cycle as
-  `ct`).
-- `BAUD` with honour: `st = ct && cu_smp_i`.
-- `BAUD` without honour: state `spend` and a countdown `scnt` (0..RTRIP-1)
+- `!BAUDT` (`EDGE`, `RECOVER`, `PULSE` receive): `st` as in section 4 (same
+  cycle as `ct`).
+- `BAUDT` (`BAUD`, or `PULSE` with a transmitting field) with honour:
+  `st = ct && cu_smp_i`.
+- `BAUDT` without honour: state `spend` and a countdown `scnt` (0..RTRIP-1)
   with an armed flag `sarm`.
   - `spend` is set at the end of a cycle with `ct && cu_smp_i`, and cleared
     at the end of a cycle with `st`, or by abort, halt or `TICK` write.
@@ -237,8 +242,8 @@ sat16(ecnt + pt)`. `d16_o = ecnt`.
 So in a cycle `t1` with an edge, `d16 = ` the number of strobes in cycles
 `t0 .. t1-1`, where `t0` is the previous edge (at prescale 1, `t1 - t0`).
 `d8 = min(d16, 255)`; `ge0_o = d8 >= cfg_thr0_i`. It runs in every mode and
-is unaffected by abort and `TICK` writes. (`THR1`, `THR2` have no consumer:
-`lane.md` I11.)
+is unaffected by abort and `TICK` writes. (`THR1`, `THR2` are deleted,
+ruling 23.)
 
 ## 7. Operation timer
 
@@ -249,11 +254,18 @@ never starts it with N = 0). Then
 - `ot_done = 1` in exactly one cycle: `(e (+) N) - 1`, the cycle before the
   N-th strobe after e. At prescale 1 that is `e + N - 1`, so the next
   operation is current at `e + N`.
+- **Count ending at the first strobe.** When N = 1 and `pt_next = 1` in e
+  (always the case at prescale 1 with N = 1), that cycle is e itself:
+  `ot_done = 1` in e, combinationally from `ot_start_i`, where N = 1 iff
+  `ot_raw_i ? (ot_n_i <= 1) : (ot_n_i[11:0] == 1 && Pd == 1)`. This is the
+  only output of this block that depends on a `rosetta_field` action in the
+  same cycle (`lane.md` 6).
 - The timer is cancelled by abort, halt and a new `ot_start`.
 
 Implementation note (not normative): an interval counter of 12 bits and a
-strobe counter of 16 bits; `ot_done` uses `pt_next` (3.1), so it is a flop
-output compare, not a deep path.
+strobe counter of 16 bits; apart from the start-cycle case above, `ot_done`
+uses `pt_next` (3.1) on timer flops, so it is a flop compare, not a deep
+path.
 
 ## 8. Clock output requests (summary)
 
@@ -311,7 +323,9 @@ Per cycle t (not halted):
    on the pin one cycle later.
 2. **Cancel.** `cancel = abort_i || wr_tick_i || (pv && an undelayed request
    of the same stream in t) || (pin_we_i && pv && (pclk ? pin_mask_i[3] :
-   (pin_mask_i[0] || pin_mask_i[1])))`.
+   (pin_mask_i[0] || (pin_mask_i[1] && w1))))`, with `w1` the pending
+   payload's "also write `out1`" bit: a `PIN` cancels a pending change only
+   if it writes an output that change writes (`lane.md` I22).
 3. **Output.** If `pv && !cancel && (mat || a new delayed request in t)`:
    the pending change is output in t on its stream (`d_we_o` or `c_we_o`
    with `ppay`), `dcap_o = pclk && pcap`. A pending change is never lost
@@ -329,10 +343,12 @@ cleared, outputs 0.
 
 ## 10. Required properties
 
-`rosetta_tick` (inputs free except: `cfg_` inputs change only in a cycle
-with `wr_tick_i` or while `run_i = 0` for `TICK`/`PERIOD`/`PERIOD2`/`PULSE`
-and only while `bt_run = 0` for the rest; `fld_first_i` only when `cu_fld_i`;
-`launch_req_i` only when `cu_fld_i`):
+`rosetta_tick` (inputs free except: `cfg_` inputs change only in cycles
+with `cu_v_i = pk_v_i = 0` and `bt_run_o = 0` (the sequencer writes
+registers 0-9 only to an idle lane), or while `run_i = 0`, and the `TICK`
+inputs only at the end of a cycle with `wr_tick_i`; `fld_first_i` only when
+`cu_fld_i`; `launch_req_i` only when `cu_fld_i`; `ot_start_i` only when
+`cu_v_i`):
 
 1. **Prescaler**: `pt` follows 3.1 exactly; with prescale 1 it is always 1.
 2. **BAUD exact timing** (prescale 1, honour off, `spend` 0): a launch tick
@@ -342,11 +358,18 @@ and only while `bt_run = 0` for the rest; `fld_first_i` only when `cu_fld_i`;
    `(L (+) Pd) (+) P2d`.
 3. **Start from stopped**: `bt_run = 0` and `launch_req_i` and `G` imply
    `lt` in the same cycle.
-4. **Hold never makes a clock edge**: in a cycle where `lr = 1` holds,
-   `creq = 0` and `lt = 0`; holding ends with `lt` (when `launch_req_i`) or a
-   stop.
-5. **Stop**: `bt_stop` only at `eob` with `!launch_req_i && !fld_next_i`;
-   it requests `rest ? LL : IL` and `bt_run` is 0 next cycle.
+4. **Hold never makes a clock edge or a stop**: in a cycle with `G`,
+   `bt_run_o`, `!launch_req_i` and `fld_next_i`: `lt = 0`, `bt_stop = 0`,
+   and a `creq` there is the capture request (`creq_cap_o = 1`). With
+   prescale 1, honour off and no postponement, after a `ct` at c with
+   `!launch_req_i && fld_next_i` in every cycle from `c + P2d` on, there is
+   no `creq` and no `lt` until the first cycle with `launch_req_i` (which is
+   an `lt`) or `!fld_next_i` (a stop).
+5. **Stop**: `bt_stop` implies `G`, `bt_run_o`, `!launch_req_i` and
+   `!fld_next_i`; it requests `rest ? LL : IL`, and `bt_run_o` is 0 next
+   cycle. With prescale 1 and honour off, after a `ct` at c and no `lt`
+   since, `bt_stop` occurs no earlier than `c + P2d`, and in `c + P2d` if
+   `!launch_req_i && !fld_next_i` there.
 6. **Clock alternation (BAUD)**: between two consecutive clock requests from
    the timer, levels alternate `LL`, `CL`, `LL`, ... except that the stop
    request may repeat `LL` (rest).
@@ -355,11 +378,14 @@ and only while `bt_run = 0` for the rest; `fld_first_i` only when `cu_fld_i`;
 8. **Sample**: without honour, every `ct` with `cu_smp_i` is followed by
    exactly one `st`, RTRIP cycles after its reference cycle, unless abort,
    halt or `TICK` write intervenes; never two pending.
-9. **EDGE**: `ct = st = ec`; `lt = el || (stretch && fld_first_i)`.
-10. **Stretch**: `out3` low is requested only in a cycle with `el` (never
-    creates a falling edge); release is requested exactly `Pd` prescaled
-    cycles after the field start (`(s (+) Pd)`), or at abort; never while no
-    stretch is active.
+9. **EDGE**: `ct = st = ec`; `lt = el || (stretch_o && fld_first_i)`.
+10. **Stretch**: `stretch_o` rises only after a cycle with `el`,
+    `!cu_v_i`, `!pk_v_i`, `data_wait_i`, `cfg_clkout_i && cfg_hold_i`, in
+    which `out3` low is requested (never creates a falling edge); the
+    release (`IL`) is requested exactly at `s (+) Pd` after a cycle s with
+    `stretch_o && fld_first_i`, or in an abort cycle while `stretch_o`;
+    apart from these and the `TICK`-write request (16), `EDGE` makes no
+    clock request.
 11. **RECOVER**: after a launch tick at L with no data edge until then,
     `ct` at `L (+) H` and the next `lt` at `L (+) Pr`; a data edge is always
     an `lt` and restarts the count.
@@ -369,12 +395,14 @@ and only while `bt_run = 0` for the rest; `fld_first_i` only when `cu_fld_i`;
 14. **Operation timer**: exactly one `ot_done` per start, in cycle
     `(e (+) N) - 1`, unless cancelled.
 15. **Abort and halt**: in a `!G` cycle all strobes are 0 (except the
-    stretch release request); afterwards `bt_run = spend = stretch = 0`.
+    stretch release request); afterwards `bt_run_o = spend_o = stretch_o =
+    0`.
 16. **`TICK` write**: next cycle, the idle request when `cfg_clkout_i`.
 17. **Covers**: each mode's ticks; honour wait of more than 10 cycles; a
     BAUD hold; a postponed capture (bit time 4); a sample at the same cycle
-    as the next launch (3+3); stretch start and release; RECOVER resync by
-    an edge in each half; an operation timer with W = 2 at prescale 8.
+    as the next launch (`Pd = 3`, `P2d = 4`); stretch start and release;
+    RECOVER resync by an edge in each half; an operation timer with W = 2 at
+    prescale 8; `ot_done` in its start cycle (N = 1).
 
 `rosetta_delay`:
 

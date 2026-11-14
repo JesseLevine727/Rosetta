@@ -162,9 +162,15 @@ coincide (they are different operations).
 
 ## 5. Required properties
 
-Assumptions: `cfg_` inputs change only in a cycle with `wr_code_i` (for
-`CODE`) or `wr_tick_i` (`TICK`) or while halted; at most one of `tx_go_i`,
-`tx_rel_i`, `raw_go_i` per cycle.
+Assumptions: `cfg_` inputs change only at the end of a cycle with
+`wr_code_i` (for `CODE`) or `wr_tick_i` (`TICK`) or while halted;
+`cfg_pw0_i`/`cfg_pw1_i` are read only in a cycle with `tx_go_i` and need no
+assumption; at most one of `tx_go_i`, `tx_rel_i`, `raw_go_i` per cycle;
+`tx_go_i`, `tx_rel_i`, `raw_go_i`, `st_i`, `cte_i`, `hte_i` are 0 in a cycle
+with `abort_i` or `!run_i` (`field.md` 2.1, `tick.md` 2). The state `nz_q`,
+`mph`, `tl_q`, `hp`, `hv` is not exposed: the checker keeps shadow copies,
+which the ports determine completely (reset values of section 2, updates of
+3.2, 4.2-4.4).
 
 1. **Mapping**: every request's payload is `MAP(l)` (or the release payload)
    as in 4.1-4.2; with open-drain, `v0 = v1 = 0` always.

@@ -40,6 +40,16 @@ Rulings on the lane specs (`docs/blocks/lane.md` decisions I1-I30):
 | 25 | I2C controller STOP while a target stretches (I28) | Use an event plus `WAIT`; no new hardware. |
 | 26 | Interface additions | `ts_i`/`res_ts_o` for timestamps; `busy_o` covers the end of the last bit; a parked operation starts two cycles after its park; a result overrun holds the completing operation. sequencer.md follows lane.md here. |
 
+Rulings after the cross-review of the lane specs (`lane.md` 12.2, R1-R11):
+
+| # | Topic | Ruling |
+|---|---|---|
+| 27 | `EXCHANGE` with a differential input | Always takes its sample as a bit (exception to ruling 20; no protocol needs the combination). |
+| 28 | `seek` in `BAUD` without `stretch_honour` | Compiler rule: `(PERIOD2 - 1) * prescale + 1` must exceed the 4-cycle round trip. |
+| 29 | `BAUD` timestamps | Latched at the last sample, a fixed 4 cycles after the last capture tick; the compiler subtracts the offset. This refines ruling 12. |
+| 30 | sequencer.md follows lane.md | `lane_busy_i` covers the end of the last `BAUD` bit; new input `lane_res_ts_i` (16 bits per lane); `CAP` timestamp word is `{ts[31:16] - (ts[15:0] < res_ts), res_ts}`; a parked operation is current two cycles after its park; an overrun holds the completing operation; sync instructions wait for the end of the last `BAUD` bit; top level routes `ts_o` to the lanes. |
+| 31 | xbar.md text | Stale where it says two flops and t-2: the proven RTL has three flops on the pin path (t-3), two on the host path, one on loopback. In loopback the round trip is 2 cycles, not 4. |
+
 Known risks, not rulings: Ethernet receive has about half a cycle of
 jitter margin with single-edge sampling (decide on the FPGA whether to
 sample on both clock edges); a USB bus reset is timed by software.

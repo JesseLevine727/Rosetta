@@ -96,7 +96,9 @@ these never enables an output (`lane.md` 9 property 12).
 2. `out_oe_o = 0` whenever `run_i = 0`; after a cycle with `run_i = 0`,
    `oe = 0`.
 3. From reset until a cycle with one of the enabling inputs (section 4) and
-   `run_i`, `out_oe_o = 0` and `out_val_o = 0`.
+   `run_i`, `out_oe_o = 0`; until a cycle with `run_i` and any of
+   `pin_we_i`, `d_we_i`, `c_we_i`, `out_val_o = 0` (a `PIN` with enable 0 or
+   a release may change a value without enabling it).
 4. `PIN` priority: in a cycle with `pin_we_i && pin_mask_i[j]` (and
    `run_i`), output j takes the `PIN` values regardless of the other
    requests.

@@ -43,7 +43,7 @@ Signals in cycle t: `a = in_i[A]`, `aq = in_q_i[A]`, `b = in_i[B]`,
 `bok = (bm == 0) || (bm == 1 && b) || (bm == 2 && !b)`.
 
 Trigger 4 ignores `L` and `bm`. Triggers 0 and 5-7 never fire, never open a
-window (`lane.md` I17 leaves open whether the sequencer halts on 5-7).
+window (ruling 21: undefined values in mode-register data act as off).
 
 ## 3. Behaviour
 

@@ -1,0 +1,49 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_delay (tick.md section 9, launch delay unit).
+#      cd formal/tick && sby -f delay.sby [prove|bmc|cover]
+#  Keep run directories out of the tree, e.g.
+#      sby -f -d ref/build/delay_prove delay.sby prove
+#
+#  DESIGN UNDER TEST -- the first line of [files]. To run the property
+#  writer's private reference model (NOT the design; used only to show
+#  non-vacuity) change that one line to:
+#      rosetta_delay.sv ref/rosetta_delay.sv
+# ============================================================================
+[files]
+rosetta_delay.sv ../../src/rosetta_delay.sv
+delay_props.sv
+delay_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded, full parameter range (D = 0..255, raw and prescaled,
+#         both streams), abc pdr.
+#  bmc    depth 20, supplementary. Depth argument: every property relates at
+#         most two consecutive cycles and the model mirrors the whole spec
+#         state (pv, pclk, ppay, pcap, pcnt); with D <= 17 every maturity,
+#         flush, cancel and saturation-free count path is exercised from
+#         reset (1 cycle) + request (1) + D cycles. Larger D only adds
+#         identical counting steps; the unbounded `prove` covers them.
+#  cover  depth 16 (deepest: prescaled delay with gaps, ~8 cycles).
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+bmc: mode bmc
+bmc: depth 20
+cover: mode cover
+cover: depth 16
+
+[engines]
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read -formal rosetta_delay.sv
+read -formal delay_props.sv
+read -formal delay_fv.sv
+prep -top delay_fv

@@ -1,0 +1,58 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_cfg (lane.md section 5 + decisions.md).
+#  Run from formal/cfg/, with run directories kept out of the tree:
+#      sby -f cfg.sby -d ref/build/cfg_prove prove   (prove | bmc | cover)
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_cfg.sv ../../src/rosetta_cfg.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_cfg.sv ref/rosetta_cfg.sv
+cfg_props.sv
+cfg_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  unbounded. Two engines in parallel; the first conclusive answer
+#         wins (an inconclusive induction is not an answer):
+#           smtbmc bitwuzla  k-induction, depth 4. Every assertion relates at
+#                            most two consecutive cycles of port values and
+#                            the checker's single model flop (the watched-bit
+#                            shadow sh), and the stored state of a correct
+#                            design is exactly its register outputs, so the
+#                            property set is 1-inductive; 4 is margin for a
+#                            design with a hidden pipeline flop. Measured
+#                            minimum on the reference model: depth 1.
+#           abc pdr          needs no depth (backup; finds its own invariants,
+#                            e.g. for hidden state the outputs do not show).
+#  bmc    bounded cross-check only, depth 24. Justification: not the
+#         completeness argument (prove is). 24 cycles hold a reset, a write to
+#         every one of the 15 register halves and margin, from arbitrary
+#         initial flop values; the longest assertion window is 2 cycles.
+#  cover  depth 24. Deepest cover: c_all_set (reset + 15 writes, one per
+#         register half = 16 cycles); 24 is that plus margin.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+bmc: mode bmc
+bmc: depth 24
+cover: mode cover
+cover: depth 24
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+read -formal rosetta_cfg.sv
+read -formal cfg_props.sv
+read -formal cfg_fv.sv
+prep -top cfg_fv

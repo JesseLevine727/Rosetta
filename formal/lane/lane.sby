@@ -1,0 +1,170 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_lane (lane.md + decisions.md 1-54).
+#  Run from formal/lane/, run directories kept out of the tree:
+#      sby -f -d ref/build/lane_prove lane.sby prove
+#  Tasks: prove | prove_hard | prove_r53 | bmc | bmc_gold | bmc_bus | cover.
+#  The unbounded claim is prove + prove_hard + prove_r53 (all three must
+#  PASS); the bmc tasks are cross-checks; cover must reach every cover.
+#
+#  ---- Design under verification: exactly ONE of the two lane lines below --
+#  (ref/run_mutants.sh rewrites the first one to the private reference.)
+#
+#  White box. Layers W, E and the lemmas of lane_props.sv observe the ports of
+#  the nine sub-block instances by their lane.md section 3 names (u_cfg,
+#  u_tick, u_dly, u_code, u_field, u_crc, u_stuff, u_evt, u_pins), tied to
+#  the checker after `flatten` by lane_wb_dut.ys / lane_wb_r53.ys (generated
+#  by gen_wb.py from the sub-block port lists). A design whose instances do
+#  not carry those names makes `connect` fail (ERROR, not a silent pass). The
+#  port-level layer P and the golden layer G need no internal name: to run
+#  them alone, add `read -define LANE_NO_WHITEBOX` and delete the
+#  `script lane_wb_*.ys` and `chformal` lines (prove_hard and prove_r53
+#  need the white box).
+# ============================================================================
+[files]
+rosetta_lane.sv ../../src/rosetta_lane.sv
+#rosetta_lane.sv ref/rosetta_lane.sv
+#  The nine proven sub-blocks (given components):
+rosetta_cfg.sv ../../src/rosetta_cfg.sv
+rosetta_tick.sv ../../src/rosetta_tick.sv
+rosetta_delay.sv ../../src/rosetta_delay.sv
+rosetta_coding.sv ../../src/rosetta_coding.sv
+rosetta_field.sv ../../src/rosetta_field.sv
+rosetta_crc.sv ../../src/rosetta_crc.sv
+rosetta_stuff.sv ../../src/rosetta_stuff.sv
+rosetta_events.sv ../../src/rosetta_events.sv
+rosetta_pins.sv ../../src/rosetta_pins.sv
+#  Checker:
+lane_wb.svh
+lane_wb_dut.ys
+lane_wb_r53.ys
+lane_struct.ys
+lane_model.sv
+lane_props.sv
+lane_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove       abc pdr, unbounded, on the FULL composition (design + the nine
+#              real sub-blocks, nothing abstracted), instance u_dut, every
+#              input free under the sequencer guarantees. Proves every
+#              assertion of layers P, W, E and the lemmas l_* except the
+#              "hard group" below, which it removes (chformal -remove), and
+#              a_p7_drive (LANE_NO_DRIVE_VALUE, see bmc). PDR proves each
+#              assertion separately and assumes none of the others. Also
+#              runs the static structural check lane_struct.ys (P14); a
+#              violation is an ERROR of this task.
+#  prove_hard  smtbmc k-induction, depth 6, on the same composition: the hard
+#              group a_p10_e, a_p10_v (busy_o until the end-of-bit clock
+#              change), l_p10 (its invariant) and a_p7_tag (result width and
+#              tag rule). Every other assertion is turned into an assumption
+#              (chformal -assert2assume): task `prove` proves exactly those,
+#              unboundedly, under the same environment and without assuming
+#              the hard group, so the two together prove all of them
+#              (assume-guarantee over time, as formal/field prove_e2e).
+#              PDR alone left this group open after 30 minutes.
+#  prove_r53   abc pdr, unbounded: instance u_r53 only (FV_R53, FV_NO_MAIN),
+#              the lane with its clock-input pin modelled (lane_props "R53
+#              instance"): ruling 53's open obligation a_e_r53_ltct (launch
+#              and capture tick never in one cycle) in every mode, under the
+#              compiler rule (master clock low phase >= 5 cycles) and the
+#              assumptions u_r53_* of lane_props.sv, with the R53 lemmas
+#              l_r53_* (proven in the same run).
+#  bmc         smtbmc bitwuzla, depth 20, u_dut: every assertion including
+#              a_p7_drive (the DRIVE result equals its source masked to n:
+#              unbounded only by composition, formal/field prove_e2e a_p3_* /
+#              a_e2e_drive* with the park bus wiring proven by a_w_fld_pbus).
+#              Depth 20: all lane.md 9 features and a complete FIELD in each
+#              tick mode are reached by step 8 in u_dut (strobes may come
+#              every cycle there), every assertion compares at most two
+#              consecutive cycles, and 20 holds two complete BAUD fields with
+#              their RTRIP sample, a delayed change and a PIN from reset.
+#              Cross-check of the unbounded tasks, not the claim.
+#  bmc_gold    smtbmc bitwuzla, depth 16, u_dut + u_gold (FV_GOLD): layer G,
+#              every lane output equals the spec composition lane_model.sv in
+#              every cycle (port level, no internal names). The bounded
+#              catch-all for integration bugs W cannot see (sub-block
+#              parameters) and the only wiring check when the white box is
+#              off. Depth 16: every planted integration bug of
+#              ref/rosetta_lane.sv is caught by G at step <= 13 (the deepest,
+#              MUT_DCAP_OPEN, needs SETM CODE/THR2L/PERIOD, a park, a BAUD
+#              sampling field and its delayed capture edge), plus margin.
+#  bmc_bus     smtbmc bitwuzla, depth 12, u_dut + u_bus (FV_BUS): lane.md
+#              9.3, the shared-bus lemma, by two copies. Unbounded by
+#              composition: layer W (prove) shows the shared buses reach only
+#              u_field (park_*, cmd_data) and u_cfg (cfg_reg/hi/data) and
+#              every other sub-block input is a bus-free expression; the bus
+#              lemmas of those two blocks are proven unboundedly in
+#              formal/field (a_bus_lemma) and formal/cfg (cfg_bus_props).
+#              Depth 12: a park, a CRCCHK and SETMs of every register reach
+#              the outputs within 6 steps.
+#  cover       smtbmc yices, depth 20: u_dut and u_r53 (FV_R53). Every
+#              cover must be reached (PASS); the deepest is at step 13 (R53
+#              instance under the X-cycle rhythm).
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+prove_hard
+prove_r53
+bmc
+bmc_gold
+bmc_bus
+cover
+
+[options]
+prove: mode prove
+prove_hard: mode prove
+prove_hard: depth 6
+prove_r53: mode prove
+bmc: mode bmc
+bmc: depth 20
+bmc_gold: mode bmc
+bmc_gold: depth 16
+bmc_bus: mode bmc
+bmc_bus: depth 12
+cover: mode cover
+cover: depth 20
+
+[engines]
+prove: abc pdr
+prove_hard: smtbmc bitwuzla
+prove_r53: abc pdr
+bmc: smtbmc bitwuzla
+bmc_gold: smtbmc bitwuzla
+bmc_bus: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+bmc_gold: read -define FV_GOLD
+bmc_bus: read -define FV_BUS
+prove: read -define LANE_NO_DRIVE_VALUE
+prove_hard: read -define LANE_NO_DRIVE_VALUE
+prove_r53: read -define FV_R53 FV_NO_MAIN
+cover: read -define FV_R53
+read -formal rosetta_cfg.sv
+read -formal rosetta_tick.sv
+read -formal rosetta_delay.sv
+read -formal rosetta_coding.sv
+read -formal rosetta_field.sv
+read -formal rosetta_crc.sv
+read -formal rosetta_stuff.sv
+read -formal rosetta_events.sv
+read -formal rosetta_pins.sv
+read -formal rosetta_lane.sv
+read -formal lane_model.sv
+read -formal lane_props.sv
+read -formal lane_fv.sv
+prep -top lane_fv
+prove: script lane_struct.ys
+bmc: script lane_struct.ys
+flatten
+cd lane_fv
+prove: script lane_wb_dut.ys
+prove_hard: script lane_wb_dut.ys
+bmc: script lane_wb_dut.ys
+bmc_gold: script lane_wb_dut.ys
+bmc_bus: script lane_wb_dut.ys
+cover: script lane_wb_dut.ys
+prove_r53: script lane_wb_r53.ys
+cover: script lane_wb_r53.ys
+cd ..
+prove: chformal -remove lane_fv/c:u_chk.a_p10_e lane_fv/c:u_chk.a_p10_v lane_fv/c:u_chk.l_p10 lane_fv/c:u_chk.a_p7_tag
+prove_hard: chformal -assert -assert2assume lane_fv/t:$check lane_fv/c:u_chk.a_p10_e lane_fv/c:u_chk.a_p10_v lane_fv/c:u_chk.l_p10 lane_fv/c:u_chk.a_p7_tag %u %u %u %d

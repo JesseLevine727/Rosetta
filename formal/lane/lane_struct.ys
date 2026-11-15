@@ -1,0 +1,14 @@
+# lane.md 9.14 (structural): no combinational path from any input except
+# run_i to any output; from run_i only to out_oe_o. Static check on the
+# design, flattened, run from lane.sby after prep (the full design is saved
+# and restored around it). The input cone of each output is followed through
+# combinational cells only (flip-flop cells stop it); it must contain no
+# lane input port (run_i allowed for out_oe_o). A violation makes the task
+# fail with "select -assert-none" (ERROR).
+design -save lane_struct_full
+hierarchy -top rosetta_lane
+flatten
+opt_clean
+select -assert-none rosetta_lane/o:* rosetta_lane/o:out_oe_o %d %ci*:-$dff,$dffe,$adff,$adffe,$sdff,$sdffe,$sdffce,$aldff,$aldffe,$dffsr,$dffsre,$ff rosetta_lane/i:* %i
+select -assert-none rosetta_lane/o:out_oe_o %ci*:-$dff,$dffe,$adff,$adffe,$sdff,$sdffe,$sdffce,$aldff,$aldffe,$dffsr,$dffsre,$ff rosetta_lane/i:* rosetta_lane/i:run_i %d %i
+design -load lane_struct_full

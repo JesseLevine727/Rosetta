@@ -33,3 +33,6 @@ reference/
 # Python caches
 **/__pycache__/
 *.pyc
+
+# Local hardening summary
+harden_summary.txt

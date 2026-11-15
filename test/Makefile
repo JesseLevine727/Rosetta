@@ -6,12 +6,16 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v
+PROJECT_SOURCES = rosetta_top.sv rosetta_cfg.sv rosetta_chan.sv rosetta_coding.sv rosetta_crc.sv rosetta_delay.sv rosetta_events.sv rosetta_field.sv rosetta_host.sv rosetta_lane.sv rosetta_mem_data.sv rosetta_mem_prog.sv rosetta_pins.sv rosetta_seq.sv rosetta_sram512x32.sv rosetta_stuff.sv rosetta_tick.sv rosetta_xbar.sv
+
+COMPILE_ARGS += -g2012
 
 ifneq ($(GATES),yes)
 
 # RTL simulation:
 SIM_BUILD				= sim_build/rtl
+# The SRAM macros are modelled by the behavioural memory in rosetta_sram512x32.sv
+COMPILE_ARGS    += -DROSETTA_SRAM_BEHAV
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
 
 else
@@ -29,6 +33,11 @@ VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_io/verilog/$(PDK_CELL_PREF
 # Newer PDK versions ship the UDP (user-defined primitive) models in a separate file
 VERILOG_SOURCES += $(wildcard $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_udp.v)
 VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_stdcell.v
+
+# The netlist keeps the two SRAM macros as black boxes: use the PDK's models
+SRAM_MODEL_DIR ?= $(PDK_LIBS_REF)/sg13cmos5l_sram/verilog
+VERILOG_SOURCES += $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v
+VERILOG_SOURCES += $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_512x32_c2_bm_bist.v
 
 # this gets copied in by the GDS action workflow
 VERILOG_SOURCES += $(PWD)/gate_level_netlist.v

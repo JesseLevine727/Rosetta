@@ -1,0 +1,101 @@
+# ============================================================================
+#  SymbiYosys job for rosetta_mem_data (mem.md sections 1, 3, 4; host.md 4).
+#  Run from formal/mem/, with run directories kept out of the tree:
+#      sby -f mem_data.sby -d ref/build/mem_data_prove prove   (prove | bmc | cover)
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_mem_data.sv ../../src/rosetta_mem_data.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_mem_data.sv ref/rosetta_mem_data.sv
+rosetta_sram512x32.sv ../../src/rosetta_sram512x32.sv
+mem_probe.sv
+mem_data_props.sv
+mem_data_fv.sv
+
+# ----------------------------------------------------------------------------
+#  Marked spec choices (default = the stricter reading). To relax one, add
+#  `read -define <NAME>` before the first `read -formal` in [script]:
+#    MEM_LAX_ZERO      the 0 entries of the drive table (A_ADDR / A_DIN / A_BM
+#                      where unused) become don't-care
+#    MEM_HREG_UNGATED  hreg_we_i outside ph = 1 is assumed absent (port-table
+#                      promise) instead of checked to be ignored (3.4 text)
+# ----------------------------------------------------------------------------
+#  Memory models (mem.md 4):
+#    prove      src/rosetta_sram512x32.sv WITHOUT ROSETTA_SRAM_BEHAV, so it
+#               instantiates RM_IHPSG13_1P_512x32_c2_bm_bist, which is the
+#               probe model mem_probe.sv (pins encoded on A_DOUT = rdata_o;
+#               the checker runs the tracked-word model of 4.2 on them).
+#    bmc/cover  src/rosetta_sram512x32.sv WITH ROSETTA_SRAM_BEHAV: the full
+#               behavioural memory (512 x 32 array and read register, no
+#               reset, arbitrary initial contents).
+#
+#  prove  unbounded. Two engines in parallel; the first conclusive answer
+#         wins:
+#           smtbmc bitwuzla  k-induction, depth 4. obs_* expose all 128
+#                            spec flops and a_m_* make them equal to the
+#                            checker's model in every cycle, so the block's
+#                            state is pinned by the assertions of one step;
+#                            the checker's history registers are one cycle
+#                            deep and the tracked bit is tied to the model by
+#                            lemma l_trk. Measured minimum: depth 1 (every
+#                            check spans at most one clock edge and all the
+#                            state it needs is pinned by the assertions of
+#                            the previous step); 4 is margin.
+#           abc pdr          needs no depth (backup).
+#  bmc    bounded cross-check of the end-to-end properties with the real
+#         behavioural memory, depth 9 (steps 0..8). Justification: not the
+#         completeness argument (prove is: every macro pin bit-exact in every
+#         cycle and every flop against the model, unbounded). Phase is not
+#         assumed to rotate, and the host can load any size or pointer value
+#         with one register write per cycle (data writes on h_* can share
+#         those cycles), so from reset (step 0) any queue state of the lane
+#         under test (sizes, pointers at any wrap position, full, empty) is
+#         set by step 3. The deepest end-to-end scenarios are then: two lane
+#         operations (steps 4, 5: e.g. a push that moves the pointer, then a
+#         push at the new address), the read-back (6) and its check (7); a
+#         FIFO round trip (host write with the config, pop, check) or a half
+#         store (host write, half store, read, check) is shorter. 8 steps
+#         reach all of them; 9 is one step of margin. Larger depths are
+#         expensive for the SMT array reasoning (clean run: depth 9 ~ 100 s,
+#         every additional step several times longer). The port-level and
+#         model properties need one cycle of history only.
+#  cover  depth 16 (deepest covers: FIFO round trips after configuring a
+#         queue, ~5 cycles; cover is cheap).
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+bmc: mode bmc
+bmc: depth 9
+cover: mode cover
+cover: depth 16
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+prove: read -define MEM_PROBE
+bmc: read -define ROSETTA_SRAM_BEHAV
+cover: read -define ROSETTA_SRAM_BEHAV
+read -formal rosetta_sram512x32.sv
+prove: read -formal mem_probe.sv
+read -formal rosetta_mem_data.sv
+read -formal mem_data_props.sv
+read -formal mem_data_fv.sv
+prep -top mem_data_fv
+# Variable part-selects ($shiftx) map to muxes with 'x' fill for out-of-range
+# positions, which write_aiger (abc pdr) rejects. Map them here and make every
+# remaining 'x' constant a free value ($anyseq): conservative (an assertion
+# must hold for any value there) and identical for all engines.
+techmap t:$shiftx
+setundef -anyseq

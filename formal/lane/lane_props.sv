@@ -923,6 +923,80 @@ module lane_props #(
                 l_p10: assert (w_pins_val[3] == map_stop[1] && w_pins_oe[3] == map_stop[0]);
         end
 
+`ifdef LANE_HAZARD
+        // ------------------------------------------------------------ hazard
+        // Follow-up on report finding 7 (pins.md 3: "a PIN ... cancels a
+        // delayed change still pending for an output it writes, so a stale
+        // delayed field change cannot land after a PIN"). Only with
+        // LANE_HAZARD (lane_haz.sby); the seven tasks of lane.sby do not see
+        // these. Main instance only.
+        //
+        //  h_pend<j>  exact form: after a PIN that writes out<j> in cycle t,
+        //             the delay unit holds no change that writes out<j> at
+        //             t+1 (every change pending then was requested at or
+        //             before t, so it would land after the PIN).
+        //  h_keep<j>  observable form: after the PIN, out<j> (value and
+        //             enable registers of u_pins) keeps the PIN's values
+        //             until another PIN writes it, an undelayed request of
+        //             its stream applies, a delayed change requested AFTER
+        //             the PIN's cycle applies, or a halt / reset.
+        //  h_abort, h_halt, h_wrtick: no delayed change survives an abort,
+        //             a halt or a SETM TICK (tick.md 9.2 rule 2 / halt).
+        //  LANE_HAZ_NO_OUT3 leaves out the out3 statements (for an
+        //  unbounded run of the neighbouring cases).
+        wire hz_d    = w_dly_cfg_dly_i != 8'd0;
+        wire hz_cdel = w_dly_creq_i && w_dly_creq_dly_i &&  w_dly_cfg_dlyclk_i && hz_d;
+        wire hz_ddel = w_dly_dreq_i && w_dly_dreq_dly_i && !w_dly_cfg_dlyclk_i && hz_d;
+        wire hz_cpas = w_dly_creq_i && !hz_cdel;              // undelayed clock request
+        wire hz_dpas = w_dly_dreq_i && !hz_ddel;              // undelayed data request
+        wire hz_cout = w_dly_c_we_o && !hz_cpas;              // pending clock change applied
+        wire hz_dout = w_dly_d_we_o && !hz_dpas;              // pending data change applied
+        wire hz_store = run_i && !abort_i && !w_dly_wr_tick_i && (hz_cdel || hz_ddel);
+        wire [3:0] hz_pin = (w_field_pin_we_o && run_i && !abort_i) ? w_field_pin_mask_o : 4'd0;
+        logic [3:0] hz_ppin;                 // PIN wrote out<j> in the previous cycle
+        logic [3:0] hz_win, hz_v, hz_e;      // window open, pinned value / enable
+        logic [3:0] hz_stale;                // pending change requested at or before the
+                                             // last PIN that wrote out<j>
+        logic       hz_pabort, hz_prun, hz_pwrt;
+        always_ff @(posedge clk or negedge rst_n)
+            if (!rst_n) begin
+                hz_ppin <= 4'd0; hz_win <= 4'd0; hz_v <= 4'd0; hz_e <= 4'd0; hz_stale <= 4'd0;
+                hz_pabort <= 1'b0; hz_prun <= 1'b0; hz_pwrt <= 1'b0;
+            end else begin
+                hz_ppin <= hz_pin; hz_pabort <= run_i && abort_i; hz_prun <= run_i;
+                hz_pwrt <= w_dly_wr_tick_i;
+                for (int j = 0; j < 4; j++) begin
+                    // a change pending at, or stored in, a PIN cycle that
+                    // writes out<j> is stale for out<j>; a later one is not
+                    if (hz_pin[j])     hz_stale[j] <= 1'b1;
+                    else if (hz_store) hz_stale[j] <= 1'b0;
+                    if (!run_i) hz_win[j] <= 1'b0;
+                    else if (hz_pin[j]) begin
+                        hz_win[j] <= 1'b1; hz_v[j] <= w_field_pin_val_o[j]; hz_e[j] <= w_field_pin_oe_o[j];
+                    end else if ((j == 3 && (hz_cpas || (hz_cout && !hz_stale[j]))) ||
+                                 (j == 0 && (hz_dpas || (hz_dout && !hz_stale[j]))) ||
+                                 (j == 1 && w_dly_d_pay_o[2] && (hz_dpas || (hz_dout && !hz_stale[j]))))
+                        hz_win[j] <= 1'b0;   // a fresh change of out<j> applies
+                end
+            end
+        always @* if (MAIN == 1 && ok1) begin
+`ifndef LANE_HAZ_NO_OUT3
+            if (hz_ppin[3]) h_pend3: assert (!(w_dly_pv && w_dly_pclk));
+            if (hz_win[3])  h_keep3: assert (w_pins_val[3] == hz_v[3] && w_pins_oe[3] == hz_e[3]);
+`endif
+            if (hz_ppin[0]) h_pend0: assert (!(w_dly_pv && !w_dly_pclk));
+            if (hz_ppin[1]) h_pend1: assert (!(w_dly_pv && !w_dly_pclk && w_dly_ppay[2]));
+            if (hz_win[0])  h_keep0: assert (w_pins_val[0] == hz_v[0] && w_pins_oe[0] == hz_e[0]);
+            if (hz_win[1])  h_keep1: assert (w_pins_val[1] == hz_v[1] && w_pins_oe[1] == hz_e[1]);
+            if (hz_win[2])  h_keep2: assert (w_pins_val[2] == hz_v[2] && w_pins_oe[2] == hz_e[2]);
+            if (hz_pabort)  h_abort: assert (!w_dly_pv);
+            if (run_i && abort_i) h_abort_out: assert (!hz_cout && !hz_dout);
+            if (!hz_prun)   h_halt:  assert (!w_dly_pv);
+            if (!run_i)     h_halt_out: assert (!w_dly_c_we_o && !w_dly_d_we_o);
+            if (hz_pwrt)    h_wrtick: assert (!w_dly_pv);
+        end
+`endif
+
         // ------------------------------------------------------------ R53 lemmas
         // R53 instance only: the invariant behind ruling 53. Under EDGE
         // stretch_hold the lane pulls the clock line low only while it

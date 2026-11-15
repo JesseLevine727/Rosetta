@@ -14,7 +14,7 @@ here now:
 | `rosetta/model.py` | Cycle-accurate model of one lane plus the shared logic it sees |
 | `rosetta/wave.py` | ASCII waveforms of model traces |
 | `rosetta/lang.py` | Parser for the core description language (`docs/language.md` 5.1), giving a typed syntax tree |
-| `rosetta/compiler.py` | Compiler: description + role + parameters to a lane program, its mode-register values and a host manifest (milestone 1: UART, section below) |
+| `rosetta/compiler.py` | Compiler: description + role + parameters to a lane program, its mode-register values and a host manifest (UART and SPI so far, section below) |
 | `rosetta/compile.py` | Command line for the compiler |
 | `rosetta/stdlib.ros` | The standard library of check functions (`docs/language.md` 3.12) |
 
@@ -33,7 +33,7 @@ python3 -m unittest discover -s toolchain/tests
 `docs/isa.md` leaves it open, with the isa.md text each choice interprets,
 and the problems found in isa.md while building the model.
 
-`tests/test_uart_rtl.py` runs compiled programs on the chip RTL
+`tests/test_uart_rtl.py` and `tests/test_spi_rtl.py` run compiled programs on the chip RTL
 (`src/rosetta_top.sv`) under Verilator, loading them through the host SPI
 port (`tests/rtlsim.py`, harness `tests/rtl/rosetta_tb.cpp`). It looks for
 Verilator in `ROSETTA_VERILATOR`, the OSS CAD Suite path or `PATH`, skips if
@@ -47,9 +47,13 @@ the system temporary directory, keyed by a hash of the sources).
 cd toolchain
 python3 -m rosetta.compile ../programs/uart/uart.ros --role receiver -p parity=even
 python3 -m rosetta.compile ../programs/uart/uart.ros --role sender -p baud=9600 --origin 32 -o OUT
+python3 -m rosetta.compile ../programs/spi/spi.ros --role target -p cpol=1 -p cpha=1
+python3 -m rosetta.compile ../programs/spi/spi.ros --role listener --listen-wire miso
 ```
 
-The roles are the description's parties plus `listener`. Output: the
+The roles are the description's parties plus `listener`. A listener of a
+`together` on two wires (SPI) takes one lane per data wire (gap G5):
+`--listen-wire` picks the wire, and each lane also records the frame events. Output: the
 listing, the mode-register values the program's prologue writes, and the
 manifest (`docs/language.md` 3.15: in-queue words per frame, out-queue record
 layout and tags, pins, timing, the schedule check). `-o DIR` writes
@@ -60,12 +64,19 @@ Stages, each a function in `compiler.py`: parse (`lang.py`) -> elaborate
 onto a role (drive / sample / expect per field, pins, host words, tags:
 `RoleIR`) -> timing (tick mode, prescale, `PERIOD`/`PERIOD2`, rate rounding
 against `tolerance`, receiver sampling window) -> generate (instruction lines
-with schedule metadata) -> schedule check (3.16 item 8) -> assemble.
+with schedule metadata) -> schedule check (3.16 item 8) -> assemble. A
+clock-wire protocol goes through the parallel `project_b` (`RoleB`, one
+`WordOp` per repeat iteration), `timing_b` (owner's PERIOD, PIN waits from
+the rules), `_GenB` and `schedule_b`.
 
-Milestone 1 covers what the UART description uses: `clock rate` with
-`tolerance`, push-pull wires, one frame with an implicit start, data and
-constant fields, check functions (parity), compile-time `if`, `else end` and
-`else continue`. Every other construct stops with `Unsupported` naming it.
+Implemented so far: what the UART and SPI descriptions use. Clock-rate
+form: `clock rate` with `tolerance`, one frame with an implicit start, data
+and constant fields, check functions (parity), `else end` and `else
+continue`. Clock-wire form: `clock W by P rate R capture E`, plain-edge
+events, `frame after E until E` holding one open `repeat` of a field or a
+`together`, `default`, and the rule shapes `start to W changes`, `W changes
+to end`, `end to start` and `W setup to capture`. Both: push-pull wires,
+compile-time `if`. Every other construct stops with `Unsupported` naming it.
 The choices the language leaves open are listed, with the text they
 interpret, in `compiler.INTERPRETATIONS`; each is marked `# I<n>` where it is
 applied.
@@ -112,14 +123,14 @@ spelled as shown; one-bit fields take 0 or 1, or the bare name for 1.
 | 0 `TICK` | `mode`[1:0] BAUD\|EDGE\|RECOVER\|PULSE; `prescale`[3:2] 1\|8\|64\|512; `clock_in`[5:4] in0-in3; `capture`[6] RISING\|FALLING; `clock_out`[7]; `clock_idle`[8]; `clock_od`[9]; `rest`[10]; `stretch_honour`[11]; `stretch_hold`[12] |
 | 1 `PERIOD` | `value`[15:0] |
 | 2 `PERIOD2` | `value`[15:0] |
-| 3 `THR01` | `thr0`[7:0]; `thr1`[15:8] |
-| 4 `THR2L` | `thr2`[7:0]; `delay`[15:8] (launch delay) |
+| 3 `THR01` | `thr0`[7:0] (`THR1` deleted, ruling 23) |
+| 4 `THR2L` | `delay`[15:8] (launch delay; `THR2` deleted, ruling 23) |
 | 5 `CODE` | `rx`[1:0] LEVEL\|NRZI\|MANCHESTER\|SYMBOL; `tx`[3:2] LEVEL\|NRZI\|MANCHESTER\|PULSE; `data_in`[5:4] in0-in3; `invert`[6]; `data_od`[7]; `diff_out`[8]; `diff_in`[9]; `delay_clock`[10]; `delay_prescaled`[11] |
 | 6 `PULSE` | `high0`[7:0]; `high1`[15:8] |
 | 7 `STUFF` | `n`[2:0]; `mode`[3] ONES\|EQUAL; `enable`[4]; `violation_event`[5] |
 | 8 `CRCPOLY` | `value`[31:0]: write the low half, then `CRCPOLY.hi` |
 | 9 `CRCCFG` | `width`[4:0] 1-32 (stored as width-1); `init_ones`[5]; `xorout_ones`[6] |
-| 10-13 `EVC0`-`EVC3` | `a`[1:0] in0-in3; `level`[2] LOW\|HIGH; `trigger`[4:3] LEVEL\|EDGE\|ANY\|BOTHLOW; `b`[6:5] in0-in3; `b_must`[8:7] ANY\|HIGH\|LOW; `k`[15:9] |
+| 10-13 `EVC0`-`EVC3` | `a`[1:0] in0-in3; `level`[2] LOW\|HIGH; `trigger`[5:3] OFF\|LEVEL\|EDGE\|ANY\|BOTHLOW (codes 5-7 are off too, rulings 10, 21); `b`[7:6] in0-in3; `b_must`[9:8] ANY\|HIGH\|LOW\|NEVER; `k`[15:10] |
 
 The listing has one line per word, in the form `address  word  source line`:
 

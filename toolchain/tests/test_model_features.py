@@ -155,8 +155,7 @@ class Coding(unittest.TestCase):
         b = lane("""
         SETM  TICK, mode=PULSE
         SETM  CODE, rx=SYMBOL
-        SETM  THR01, thr0=36, thr1=255
-        SETM  THR2L, thr2=255
+        SETM  THR01, thr0=36
         FIELD SAMPLE 24, HOSTQ
         HALT
 """, 1)

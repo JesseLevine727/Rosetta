@@ -65,6 +65,26 @@ class RoundTrip(unittest.TestCase):
                 vals = {f.name: rng.randint(f.min, f.max) for f in r.fields}
                 self.assertEqual(isa.mode_decode(r.name, isa.mode_encode(r.name, **vals)), vals)
 
+    def test_stored_bits_follow_lane_md(self):
+        """lane.md 5.1 'Stored bits' and rulings 10, 21, 23: THR1 and THR2 are
+        deleted, trigger codes 5-7 are off, B-must 3 is 'never'."""
+        stored = {"TICK": 0x1FFF, "PERIOD": 0xFFFF, "PERIOD2": 0xFFFF, "THR01": 0x00FF,
+                  "THR2L": 0xFF00, "CODE": 0x0FFF, "PULSE": 0xFFFF, "STUFF": 0x003F,
+                  "CRCPOLY": 0xFFFF_FFFF, "CRCCFG": 0x007F,
+                  **{f"EVC{k}": 0xFFFF for k in range(4)}}
+        self.assertEqual({r.name: r.defined_mask for r in isa.MODE_REGS}, stored)
+        self.assertEqual([f.name for f in isa.MODE_REG_BY_NAME["THR01"].fields], ["thr0"])
+        self.assertEqual([f.name for f in isa.MODE_REG_BY_NAME["THR2L"].fields], ["delay"])
+        w = asm.assemble("SETM EVC1, a=in2, trigger=LEVEL, level=HIGH, b=in3, b_must=NEVER, k=5").words[0]
+        self.assertEqual(w & 0xFFFF, 2 | 1 << 2 | 1 << 3 | 3 << 6 | 3 << 8 | 5 << 10)
+        for code in (5, 6, 7):                   # off; no name, printed as a number, exact round trip
+            word = asm.assemble(f"SETM EVC0, {code << 3}").words[0]
+            self.assertEqual(isa.mode_decode("EVC0", word & 0xFFFF)["trigger"], code)
+            self.assertIn(code, isa.EV_TRIGGER_OFF_CODES)
+            self.assertEqual(asm.assemble(isa.disassemble(word)).words, [word])
+        with self.assertRaises(asm.AsmError):
+            asm.assemble("SETM THR2L, thr2=255")
+
     def test_known_encodings(self):
         """Hand-checked against the tables of isa.md 3.1, 3.4, 3.6."""
         # FIELD DRIVE 8, lsb, R0: kind 0, n-1=7 at [25:21], lsb [20], src R0, dst NONE

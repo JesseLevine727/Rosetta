@@ -1,5 +1,7 @@
-; Copied verbatim from rosetta-fpga results/loopback_20261114/uart_tx.asm: hardware-proven
-; on the PYNQ-Z1 at 60 MHz, 14 Nov 2026 (assembles to that run's image.json words).
+; Copied from rosetta-fpga results/loopback_20261114/uart_tx.asm: hardware-proven on the
+; PYNQ-Z1 at 60 MHz, 14 Nov 2026. Only comments changed: the notes about the old
+; event-register layout are gone (asm.py now encodes ruling 10 directly); the
+; instructions assemble to that run's image.json words.
 ; lane 0, origin 0: UART transmit 8N1 (toolchain/README.md "UART transmit").
 ; PERIOD2 is patched by the host script for the rate-tolerance runs.
         SETM  TICK, mode=BAUD

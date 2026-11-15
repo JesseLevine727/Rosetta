@@ -1,8 +1,9 @@
 """Compiler (rosetta/compiler.py) on the UART description, without simulation.
 
-The RTL runs are in test_uart_rtl.py. Here: every difference from the
-hardware-proven hand-written programs is the documented one, the rate checks
-of language.md 3.16 item 7 and 8, and unsupported constructs are named.
+The RTL runs are in test_uart_rtl.py and test_spi_rtl.py. Here: every
+difference from the hardware-proven hand-written programs is the documented
+one, the rate checks of language.md 3.16 items 7 and 8, the SPI limits, and
+unsupported constructs are named.
 """
 import contextlib
 import io
@@ -13,9 +14,12 @@ import unittest
 import support
 from rosetta import asm, isa
 from rosetta.compile import main as cli
-from rosetta.compiler import CompileError, Unsupported, compile_file, compile_text
+from fractions import Fraction
+
+from rosetta.compiler import CompileError, Unsupported, _check_rulings, compile_file, compile_text
 
 UART = os.path.join(support.TOOLCHAIN, "..", "programs", "uart", "uart.ros")
+SPI = os.path.join(support.TOOLCHAIN, "..", "programs", "spi", "spi.ros")
 
 
 def hand_words(name: str) -> list[int]:
@@ -122,15 +126,77 @@ class HostView(unittest.TestCase):
         self.assertEqual(asm.assemble(data["asm"]).words, c.words)
 
 
+class Spi(unittest.TestCase):
+    """SPI (language.md 2.2). The RTL runs are in test_spi_rtl.py."""
+
+    def test_same_configuration_as_hand_written(self):
+        """Mode 0, 1 MHz: every mode register the FPGA-proven programs write
+        has the same value in the compiled ones (same pins, clock, events)."""
+        for role, hand in (("controller", "spi_controller"), ("target", "spi_target")):
+            with self.subTest(role):
+                c = compile_file(SPI, role)
+                for w in hand_words(hand):
+                    ins = isa.decode(w)
+                    if ins.op == "SETM":
+                        self.assertEqual(c.mode_regs[isa.MODE_REGS[ins["reg"]].name], ins["imm"])
+
+    def test_fastest_clock(self):
+        top = {0: 1_500_000, 1: 2_000_000}               # by cpha: the target's first bit
+        for cpha, rate in top.items():
+            p = {"cpha": str(cpha), "sck_rate": f"{rate} Hz"}
+            self.assertEqual(compile_file(SPI, "target", p).manifest["timing"]
+                             ["fastest_rate_hz_schedule"], rate)
+            with self.assertRaisesRegex(CompileError, "schedule does not fit"):
+                compile_file(SPI, "target", {**p, "sck_rate": f"{rate + 10_000} Hz"})
+        c = compile_file(SPI, "controller", {"sck_rate": "6 MHz"})
+        self.assertEqual((c.mode_regs["PERIOD"], c.mode_regs["PERIOD2"]), (5, 5))
+        with self.assertRaisesRegex(CompileError, "round trip"):
+            compile_file(SPI, "controller", {"sck_rate": "6.1 MHz"})
+
+    def test_listener_needs_one_lane_per_wire(self):
+        with self.assertRaises(Unsupported) as cm:
+            compile_file(SPI, "listener")
+        self.assertIn("G5", str(cm.exception))
+        c = compile_file(SPI, "listener", listen_wire="miso")
+        self.assertEqual(c.manifest["listener"], {"listens_on": "miso", "other_lanes_for": ["mosi"]})
+
+    def test_target_data_needs_default(self):
+        with self.assertRaisesRegex(CompileError, r"3\.16 item 4"):
+            compile_text(spi_text().replace(" default 0", ""), "controller")
+
+    def test_rulings_49_and_53(self):
+        seek = asm.assemble("SETM TICK, mode=BAUD\nFIELD SAMPLE 8, HOSTQ, seek").words
+        with self.assertRaisesRegex(CompileError, "ruling 49"):
+            _check_rulings(seek, Fraction(100))
+        hold = asm.assemble("SETM TICK, mode=EDGE, clock_out, stretch_hold").words
+        with self.assertRaisesRegex(CompileError, "ruling 53"):
+            _check_rulings(hold, Fraction(4))
+        _check_rulings(hold, Fraction(5))
+
+
+def spi_text() -> str:
+    with open(SPI, encoding="utf-8") as f:
+        return f.read()
+
+
 class Unsupported_(unittest.TestCase):
 
     def test_named(self):
-        for fixture, construct in (("spi.ros", "clock WIRE by PARTY (clock wire)"),
-                                   ("i2c.ros", "wire ... open_drain"),
+        for fixture, construct in (("i2c.ros", "wire ... open_drain"),
                                    ("ws2812.ros", "clock symbols")):
             with self.subTest(fixture):
                 with self.assertRaises(Unsupported) as cm:
                     compile_file(os.path.join(support.FIXTURES, fixture), "controller")
+                self.assertEqual(cm.exception.construct, construct)
+        for old, new, construct in (
+                ("    repeat {", "    repeat 4 {", "repeat N (counted)"),
+                ("capture (cpha == 0 ? leading : trailing)", "capture leading stretch by target",
+                 "clock ... stretch by PARTY"),
+                ("rule miso_su : miso setup to capture", "rule miso_su : miso hold from capture",
+                 "rule W hold from EDGE")):
+            with self.subTest(construct):
+                with self.assertRaises(Unsupported) as cm:
+                    compile_text(spi_text().replace(old, new), "controller")
                 self.assertEqual(cm.exception.construct, construct)
 
     def test_bad_role_and_parameter(self):

@@ -318,8 +318,12 @@ EDGES = {"RISING": 0, "FALLING": 1}
 LEVELS = {"LOW": 0, "HIGH": 1}
 STUFF_MODES = {"ONES": 0, "EQUAL": 1}
 # Ruling 10 (docs/decisions.md): 3-bit trigger, 0 = off (reset value), K is 6 bits.
+# Ruling 21 / lane.md 5.1: trigger codes 5-7 are off as well (they have no
+# name: the assembler writes OFF as 0, the disassembler prints such a word as
+# a number), and B-must code 3 means "never".
 EV_TRIGGERS = {"OFF": 0, "LEVEL": 1, "EDGE": 2, "ANY": 3, "BOTHLOW": 4}
-EV_B_MUST = {"ANY": 0, "HIGH": 1, "LOW": 2}
+EV_TRIGGER_OFF_CODES = (0, 5, 6, 7)
+EV_B_MUST = {"ANY": 0, "HIGH": 1, "LOW": 2, "NEVER": 3}
 
 
 def _evc(index: int) -> ModeReg:
@@ -348,8 +352,9 @@ MODE_REGS: list[ModeReg] = [
     )),
     ModeReg(1, "PERIOD", 16, (B("value", 15, 0),)),
     ModeReg(2, "PERIOD2", 16, (B("value", 15, 0),)),
-    ModeReg(3, "THR01", 16, (B("thr0", 7, 0), B("thr1", 15, 8))),
-    ModeReg(4, "THR2L", 16, (B("thr2", 7, 0), B("delay", 15, 8))),
+    # Ruling 23: only THR0 exists; THR01[15:8] and THR2L[7:0] are not stored.
+    ModeReg(3, "THR01", 16, (B("thr0", 7, 0),)),
+    ModeReg(4, "THR2L", 16, (B("delay", 15, 8),)),
     ModeReg(5, "CODE", 16, (
         B("rx", 1, 0, RX_CODINGS),
         B("tx", 3, 2, TX_CODINGS),

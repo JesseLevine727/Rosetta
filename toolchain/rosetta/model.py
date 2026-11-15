@@ -377,7 +377,7 @@ class Lane:
         self.period2 = max(MIN_COUNT, self.modes[2] & 0xFFFF)
         self.raw_period = self.modes[1] & 0xFFFF
         t01, t2l = g("THR01", self.modes[3]), g("THR2L", self.modes[4])
-        self.thr = (t01["thr0"], t01["thr1"], t2l["thr2"])
+        self.thr = (t01["thr0"],)                        # ruling 23: THR1, THR2 deleted
         self.code = g("CODE", self.modes[5])
         self.prescale = PRESCALE_FACTORS[self.tick["prescale"]]
         delay = t2l["delay"] * (self.prescale if self.code["delay_prescaled"] else 1)

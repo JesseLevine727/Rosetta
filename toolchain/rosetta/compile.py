@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--origin", type=lambda s: int(s, 0), default=0,
                     help="program memory address of the first word (default 0)")
     ap.add_argument("--clock-hz", type=int, default=CLOCK_HZ, help="chip clock (default 60 MHz)")
+    ap.add_argument("--listen-wire", help="listener of a clock-wire protocol: the data wire this "
+                                          "lane samples (gap G5: one lane per data wire)")
     ap.add_argument("-o", "--out-dir", help="write PROTOCOL_ROLE.asm and .json here")
     ap.add_argument("--json", action="store_true", help="print the JSON instead of the listing")
     args = ap.parse_args(argv)
@@ -41,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
             ap.error(f"parameter {p!r} is not NAME=VALUE")
         params[name.strip()] = value.strip()
     try:
-        c = compile_file(args.file, args.role, params, clock_hz=args.clock_hz, origin=args.origin)
+        c = compile_file(args.file, args.role, params, clock_hz=args.clock_hz, origin=args.origin,
+                         listen_wire=args.listen_wire)
     except (CompileError, ParseError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -64,16 +67,27 @@ def main(argv: list[str] | None = None) -> int:
                                                    for k, v in c.params.items()))
     print("\n".join(c.listing))
     print("; mode registers: " + " ".join(f"{k}={v}" for k, v in m["mode_registers"].items()))
-    print(f"; timing: {t['tick']} PERIOD {t['PERIOD']}"
-          + (f" PERIOD2 {t['PERIOD2']}" if "PERIOD2" in t else "")
-          + f", bit {t['bit_cycles']:g} cycles for a nominal {t['nominal_bit_cycles']} "
-            f"({t['rate_error_percent']:+g} %, tolerance {t['tolerance_percent']:g} %)")
+    if "bit_cycles" in t:                       # clock-rate form
+        print(f"; timing: {t['tick']} PERIOD {t['PERIOD']}"
+              + (f" PERIOD2 {t['PERIOD2']}" if "PERIOD2" in t else "")
+              + f", bit {t['bit_cycles']:g} cycles for a nominal {t['nominal_bit_cycles']} "
+                f"({t['rate_error_percent']:+g} %, tolerance {t['tolerance_percent']:g} %)")
+    else:                                       # clock-wire form
+        own = (f" PERIOD {t['PERIOD']} PERIOD2 {t['PERIOD2']}, clock {t['clock_cycles']} cycles "
+               f"= {t['rate_hz']:g} Hz, PIN waits {t['pin_waits_periods']}" if "PERIOD" in t else "")
+        print(f"; timing: {t['tick']} on {t['clock']}, capture {t['capture']}{own}; "
+              f"schedule fits up to {t['fastest_rate_hz_schedule']} Hz")
     for w in m["in_queue"]:
-        print(f"; in-queue word per frame: {w['field']} ({w['width']} bits)")
+        what = w.get("field") or w.get("item")
+        print(f"; in-queue word: {what}" + (f" ({w['width']} bits)" if "width" in w else "")
+              + (f", default {w['default']}" if "default" in w else ""))
     if m["out_queue"]:
         oq = m["out_queue"]
         print(f"; out-queue: {oq['words_per_record']} word(s) per record, {oq['layout']}")
         for tag, d in oq["tags"].items():
+            if d["kind"] == "event":
+                print(f";   tag {tag}: event {d['event']}")
+                continue
             extra = f" = {d['expected']}, then {d['then']}" if d["kind"] == "error" else ""
             print(f";   tag {tag}: {d['kind']} {d['field']}[{d['width']}]{extra}")
     for chk in m["schedule"]:

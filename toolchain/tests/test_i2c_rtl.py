@@ -23,9 +23,11 @@ import unittest
 
 import support  # noqa: F401
 import rtlsim
+from rosetta import isa
 from rosetta.compiler import CompileError, compile_file
 
 I2C = os.path.join(rtlsim.REPO, "programs", "i2c", "i2c.ros")
+I2C_HOLD = os.path.join(rtlsim.REPO, "programs", "i2c", "i2c_hold.ros")   # t_hd_dat >= 300 ns
 NOP = 0xC0000000
 ORIGIN = {"controller": 0, "target": 80, "listener": 128, "target51": 176}
 SCL_NET, SDA_NET, BUS, LISTENER_PINS = 0x15, 0x2A, 0x3F, 0xC0
@@ -50,13 +52,21 @@ def osel(lane: int, out: int) -> int:
     return 0x10 | (lane << 2) | out
 
 
-def compile_bus(rate: str) -> dict:
+def compile_bus(rate: str, path: str = I2C) -> dict:
     p = {"scl_rate": rate}
-    return {"controller": compile_file(I2C, "controller", p, origin=ORIGIN["controller"]),
-            "target": compile_file(I2C, "target", p, origin=ORIGIN["target"]),
-            "listener": compile_file(I2C, "listener", p, origin=ORIGIN["listener"]),
-            "target51": compile_file(I2C, "target", {**p, "address": "0x51"},
+    return {"controller": compile_file(path, "controller", p, origin=ORIGIN["controller"]),
+            "target": compile_file(path, "target", p, origin=ORIGIN["target"]),
+            "listener": compile_file(path, "listener", p, origin=ORIGIN["listener"]),
+            "target51": compile_file(path, "target", {**p, "address": "0x51"},
                                      origin=ORIGIN["target51"])}
+
+
+def without_confirm_window(c) -> None:
+    """Patch K = 0 into a compiled program's event registers (a control run)."""
+    for i, w in enumerate(c.words):
+        ins = isa.decode(w)
+        if ins.op == "SETM" and isa.MODE_REGS[ins["reg"]].name.startswith("EVC"):
+            c.words[i] = w & ~(0x3F << 10)
 
 
 def run_bus(comp: dict, clock: int):
@@ -173,11 +183,12 @@ def decode(rows):
     return out, t, evs
 
 
-@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
-class I2cOnRtl(unittest.TestCase):
+class _Runs:
 
-    def run_rate(self, rate: str):
-        comp = compile_bus(rate)
+    def run_rate(self, rate: str, path: str = I2C, k0: bool = False):
+        comp = compile_bus(rate, path)
+        if k0:
+            without_confirm_window(comp["target51"])
         tc = comp["controller"].manifest["timing"]
         rows, q, ctrl = run_bus(comp, tc["clock_cycles"])
         frames, t, evs = decode(rows)
@@ -262,26 +273,31 @@ class I2cOnRtl(unittest.TestCase):
         self.assertTrue(held and max(runs) >= STRETCH, runs)
         # what the 0x51 target saw: its scl SKEW cycles late; sda changes while that scl was high
         # (other than real START/STOP) would be STARTs or STOPs without the confirm window
-        late = {}
-        hist = []
-        for c, _, _, _, _, uin in rows:
-            hist.append((c, uin & 1, (uin >> 1) & 1))
-        false_edges = 0
-        for (c0, s0, d0), (c1, s1, d1) in zip(hist, hist[1:]):
-            if d0 != d1 and s0 == 1 and s1 == 0:             # data moves as scl falls (t_hd_dat 0)
-                false_edges += 1
-        self.assertGreater(false_edges, 10)
+        false_edges, fall = 0, None
+        for c, (s0, d0), (s1, d1) in evs:
+            if s0 == 1 and s1 == 0:
+                fall = c
+            if d0 != d1 and s1 == 0 and fall is not None and c - fall <= SKEW:
+                false_edges += 1                             # sda moves within SKEW of scl falling
+        if path == I2C:
+            self.assertGreater(false_edges, 10)
+        else:
+            self.assertEqual(false_edges, 0)
         if REPORT:
             print(f"\n  i2c at {rate}: scl {tc['low_cycles']}+{tc['high_cycles']} cycles "
                   f"({tc['rate_hz']:g} Hz); frames {len(frames)}; controller {[hex(w) for w in q[0]]}"
                   f"\n    measured (cycles) vs rules: "
                   + ", ".join(f"{k} {v}/{rules[k]:g}" for k, v in meas.items())
-                  + f"\n    longest stretch {max(runs)} cycles; sda changed as scl fell {false_edges} "
-                    f"times (the 0x51 target, {SKEW} cycles late on scl, saw each as an edge while scl "
-                    f"high; the confirm window rejected them all)"
+                  + f"\n    {os.path.basename(path)}{' (K = 0 on target 0x51)' if k0 else ''}: longest "
+                    f"stretch {max(runs)} cycles; sda changed within {SKEW} cycles of scl falling "
+                    f"{false_edges} times (each an edge 'while scl high' for the 0x51 target); launch "
+                    f"delay {tc.get('launch_delay')}"
                   + f"\n    listener events after the pin edge "
                     f"{ {k: sorted(v) for k, v in lates.items()} }")
         return comp
+
+@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
+class I2cOnRtl(_Runs, unittest.TestCase):
 
     def test_100khz(self):
         self.run_rate("100 kHz")
@@ -296,6 +312,29 @@ class I2cOnRtl(unittest.TestCase):
         self.run_rate("526 kHz")
         with self.assertRaisesRegex(CompileError, "Fastest rate"):
             compile_file(I2C, "controller", {"scl_rate": "527 kHz"})
+
+
+@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
+class I2cHoldOnRtl(_Runs, unittest.TestCase):
+    """The same matrix on i2c_hold.ros (t_hd_dat >= 300 ns): sda now changes
+    after scl falls by the hold, so the skewed 0x51 target sees no edge
+    while scl is high, and keeps its records with the confirm window off."""
+
+    def test_100khz(self):
+        self.run_rate("100 kHz", I2C_HOLD)
+
+    def test_400khz(self):
+        self.run_rate("400 kHz", I2C_HOLD)
+
+    def test_fastest(self):
+        comp = compile_bus("400 kHz", I2C_HOLD)
+        top = min(c.manifest["timing"]["fastest_rate_hz"] for c in comp.values())
+        self.run_rate(f"{top // 1000} kHz", I2C_HOLD)
+        with self.assertRaisesRegex(CompileError, "Fastest rate"):
+            compile_file(I2C_HOLD, "controller", {"scl_rate": f"{top // 1000 + 1} kHz"})
+
+    def test_no_confirm_window(self):
+        self.run_rate("400 kHz", I2C_HOLD, k0=True)
 
 
 if __name__ == "__main__":

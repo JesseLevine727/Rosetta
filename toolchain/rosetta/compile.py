@@ -101,7 +101,8 @@ def main(argv: list[str] | None = None) -> int:
             if d.get("names"):
                 print(f";   tag {tag}: {d['kind']} {d['field']}[{d['width']}] {d['names']}")
                 continue
-            extra = f" = {d['expected']}, then {d['then']}" if d["kind"] == "error" else ""
+            extra = (f" = {d['expected']}" + (f", then {d['then']}" if "then" in d else "")
+                     if d["kind"] == "error" else "")
             print(f";   tag {tag}: {d['kind']} {d['field']}[{d['width']}]{extra}")
     for chk in m["schedule"]:
         print(f"; schedule: {chk['check']}: {chk['need_cycles']} of {chk['available_cycles']} cycles")

@@ -201,6 +201,17 @@ INTERPRETATIONS = {
     34: "3.7 'An event may both end one frame and begin the next: I2C start': a "
         "role that detects it has one handler for it, which records it and starts "
         "the frame (a repeated START is recorded once).",
+    36: "3.14 'sda hold from scl falls' with 'for setup and hold: W's driver at "
+        "that moment': the clock owner meets a hold rule with the launch delay "
+        "(THR2L, data only), a follower that drives the wire with the delay less "
+        "the 4 cycles its change already lags the clock pin, and a stretcher adds "
+        "that delay to its release PERIOD. PIN changes are not delayed, so a START "
+        "or STOP made inside a frame first waits the hold (an empty PIN wait). "
+        "Setup is checked net of the delay.",
+    35: "Ruling 55 (c) 'no PIN writes out3 while EDGE + stretch_hold is "
+        "configured' with 3.3 'idle: PIN at program start': a stretching role "
+        "leaves its clock output's idle level to the TICK write, which requests "
+        "it (tick.md 3.3); its idle PIN names only the data output.",
 }
 
 
@@ -2315,19 +2326,45 @@ def _compile_b(pm: ProtocolM, role: str, clock_hz: int, origin: int,
 
 
 def _check_rulings(words: list[int], low_phase: Fraction) -> None:
-    """Compiler rules of decisions.md: 49, no `seek` in BAUD timing; 53,
-    `stretch_hold` needs a clock low phase of at least 5 cycles."""
-    mode = None
-    for w in words:
+    """Compiler rules of decisions.md, on the assembled program: 49, no `seek`
+    in BAUD timing; 53 and 55, under EDGE + `stretch_hold` (a) the bus
+    clock's low phase is at least 5 cycles, (b) the clock output is
+    open-drain, idle released and capture is on the rising edge, (c) no PIN
+    writes out3. (c) is checked over the whole program once any TICK write
+    configures EDGE + stretch_hold (conservative: control flow is not
+    followed). A TICK written from a register cannot be checked and is refused."""
+    edge_hold = isa.TICK_MODES["EDGE"]
+    mode, hold_at = None, None
+    for i, w in enumerate(words):
         ins = isa.decode(w)
-        if ins.op == "SETM" and ins["reg"] == 0 and not ins["upper"] and not ins["from_reg"]:
+        if ins.op == "SETM" and ins["reg"] == 0 and not ins["upper"]:
+            if ins["from_reg"]:
+                raise CompileError(f"word {i} (0x{w:08X}): TICK written from a register; rulings "
+                                   "53 and 55 cannot be checked")
             tick = isa.mode_decode("TICK", ins["imm"])
             mode = tick["mode"]
-            if tick["stretch_hold"] and low_phase < 5:
-                raise CompileError("stretch_hold needs a clock low phase of at least 5 cycles "
-                                   "(decisions.md ruling 53)")
+            if tick["mode"] == edge_hold and tick["stretch_hold"]:
+                if low_phase < 5:
+                    raise CompileError("stretch_hold needs a clock low phase of at least 5 cycles "
+                                       f"(decisions.md ruling 53, ruling 55 a); it is {float(low_phase):g}")
+                bad = [n for n, ok in (("clock_out", tick["clock_out"]), ("clock_od", tick["clock_od"]),
+                                        ("clock_idle", tick["clock_idle"]),
+                                        ("capture=RISING", tick["capture"] == 0)) if not ok]
+                if bad:
+                    raise CompileError(f"word {i}: SETM TICK, 0x{ins['imm']:04X} configures EDGE + "
+                                       "stretch_hold without " + ", ".join(bad) + " (decisions.md "
+                                       "ruling 55 b: open-drain clock output, idle released, "
+                                       "capture on the rising edge)")
+                hold_at = i if hold_at is None else hold_at
         if ins.op == "FIELD" and ins.get("seek") and mode == isa.TICK_MODES["BAUD"]:
             raise CompileError("`seek` in BAUD timing is not allowed (decisions.md ruling 49)")
+    if hold_at is not None:
+        for i, w in enumerate(words):
+            ins = isa.decode(w)
+            if ins.op == "PIN" and ins["mask"] & 0x8:
+                raise CompileError(f"word {i}: PIN 0x{w:08X} writes out3 in a program that "
+                                   f"configures EDGE + stretch_hold (word {hold_at}) "
+                                   "(decisions.md ruling 55 c)")
 
 
 # ============================================================== clock-wire form, general (I2C)
@@ -2539,11 +2576,19 @@ def timing_g(pm: ProtocolM, ir: RoleG) -> TimingG:
         pd = math.ceil(max(Fraction(low), Fraction(bit, 2)) / p)
         p2 = max(math.ceil(Fraction(max(high - rt, 1), p)), math.ceil(Fraction(bit - pd * p - rt, p)))
         t.prescale, t.period, t.period2 = p, pd, p2
-        t.delay = math.ceil(t.rules.get("hold", 0))
+        t.delay = math.ceil(t.rules.get("hold", 0))   # data changes this long after the clock falls
         if t.delay > 255:
             raise CompileError("the hold rule needs a launch delay above 255 cycles", line, fn)
-    elif ir.stretcher:
-        t.period = max(1, math.ceil(t.rules.get("setup", 1)))   # D11: setup before release
+        if pd * p - t.delay < t.rules.get("setup", 0):
+            raise CompileError(f"the hold rule's launch delay ({t.delay}) leaves less than the setup "
+                               "rule before the capture edge", line, fn)
+    elif ir.data_wire in ir.outputs:                  # I36: a follower's change is IN+OUT late already
+        t.delay = max(0, math.ceil(t.rules.get("hold", 0)) - (IN_LAT + OUT_LAT))
+        if t.pulse(t.launch_level) - (IN_LAT + OUT_LAT) - t.delay < t.rules.get("setup", 0):
+            raise CompileError("the hold rule's launch delay leaves less than the setup rule "
+                               "before the capture edge", line, fn)
+    if ir.stretcher:                                  # D11: setup before release, after the delay
+        t.period = max(1, math.ceil(t.rules.get("setup", 1))) + t.delay
     return t
 
 
@@ -2637,8 +2682,8 @@ class _GenG(_Gen):
             code["data_od"] = 1
         self.emit(_setm("CODE", **code), f"{ir.data_wire}" + (" open-drain" if code.get("data_od") else ""))
         if ir.data_wire in ir.outputs:
-            self.emit(f"SETM  THR2L, {t.delay << 8}" if t.delay else "SETM  THR2L, 0",
-                      f"launch delay {t.delay}")
+            self.emit(f"SETM  THR2L, delay={t.delay}" if t.delay else "SETM  THR2L, 0",
+                      f"launch delay {t.delay}" + (" (hold rule)" if t.delay else ""))
         if ir.clock_owner:
             lv = ir.events[0].while_level
             self.emit(f"SETM  EVC0, a=in{cin}, trigger=LEVEL, level={'HIGH' if lv else 'LOW'}",
@@ -2654,6 +2699,8 @@ class _GenG(_Gen):
                 self.emit(f"SETM  EVC{k}, a=in{ir.inputs[e.wire]}, trigger=EDGE, level={lv}{b}",
                           f"E{k}: {e.name}" + (f", confirmed for {t.k} cycles (G4)" if b else ""))
         outs = sorted(ir.outputs.items(), key=lambda x: x[1])
+        if ir.stretcher:                # I35: the TICK write sets the clock output's idle level
+            outs = [(w, k) for w, k in outs if k != 3]
         if outs:
             self.emit("PIN   " + ", ".join(f"out{k}={self.level_text(w, int(pm.wires[w].idle))}"
                                            if pm.wires[w].idle != "released" else f"out{k}=z"
@@ -2705,6 +2752,10 @@ class _GenG(_Gen):
                 raise Unsupported("making an event whose `while` level is the clock's rest level",
                                   e.line, pm.filename)
             w_low = _wait_units(t, t.pulse(rest))
+            w_hold = _wait_units(t, t.rules.get("hold", 0))                   # I36
+            if w_hold:
+                self.emit(f"PIN   wait={w_hold}", f"{e.wire} holds after {clock.wire} falls",
+                          kind="pin")
             self.emit(f"PIN   out{w}={self.level_text(e.wire, before)}, wait={w_low}",
                       f"{e.wire} to {before}, {clock.wire} stays {rest} (pulse rule)", kind="pin")
             self.emit(f"EVT   0, {self.idle}, off, clear", f"forget {clock.wire} episodes")

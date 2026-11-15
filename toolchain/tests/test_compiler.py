@@ -21,6 +21,7 @@ from rosetta.compiler import CompileError, Unsupported, _check_rulings, compile_
 UART = os.path.join(support.TOOLCHAIN, "..", "programs", "uart", "uart.ros")
 SPI = os.path.join(support.TOOLCHAIN, "..", "programs", "spi", "spi.ros")
 I2C = os.path.join(support.TOOLCHAIN, "..", "programs", "i2c", "i2c.ros")
+HOLD_TICK = "SETM TICK, mode=EDGE, clock_in=in1, clock_out, clock_idle, clock_od, stretch_hold"
 
 
 def hand_words(name: str) -> list[int]:
@@ -169,10 +170,29 @@ class Spi(unittest.TestCase):
         seek = asm.assemble("SETM TICK, mode=BAUD\nFIELD SAMPLE 8, HOSTQ, seek").words
         with self.assertRaisesRegex(CompileError, "ruling 49"):
             _check_rulings(seek, Fraction(100))
-        hold = asm.assemble("SETM TICK, mode=EDGE, clock_out, stretch_hold").words
-        with self.assertRaisesRegex(CompileError, "ruling 53"):
+        hold = asm.assemble(HOLD_TICK).words                # satisfies ruling 55 (b)
+        with self.assertRaisesRegex(CompileError, "ruling 53"):     # (a): low phase under 5
             _check_rulings(hold, Fraction(4))
         _check_rulings(hold, Fraction(5))
+
+    def test_ruling_55_b(self):
+        for tick in ("SETM TICK, mode=EDGE, clock_out, clock_idle, stretch_hold",         # not od
+                     "SETM TICK, mode=EDGE, clock_out, clock_od, stretch_hold",           # idle 0
+                     "SETM TICK, mode=EDGE, capture=FALLING, clock_out, clock_od, clock_idle, "
+                     "stretch_hold"):                                                     # falling
+            with self.subTest(tick):
+                with self.assertRaisesRegex(CompileError, r"ruling 55 b"):
+                    _check_rulings(asm.assemble(tick).words, Fraction(78))
+
+    def test_ruling_55_c(self):
+        with self.assertRaisesRegex(CompileError, r"word 1: PIN 0x29000000 writes out3.*ruling 55 c"):
+            _check_rulings(asm.assemble(HOLD_TICK + "\nPIN out0=z, out3=z").words, Fraction(78))
+        _check_rulings(asm.assemble(HOLD_TICK + "\nPIN out0=z").words, Fraction(78))
+        for rate in ("100 kHz", "400 kHz"):                  # the compiled I2C target passes
+            t = compile_file(I2C, "target", {"scl_rate": rate})
+            _check_rulings(t.words, Fraction(78))
+            self.assertNotIn(True, [isa.decode(w).op == "PIN" and bool(isa.decode(w)["mask"] & 8)
+                                    for w in t.words])
 
 
 def spi_text() -> str:

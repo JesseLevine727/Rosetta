@@ -14,7 +14,7 @@ here now:
 | `rosetta/model.py` | Cycle-accurate model of one lane plus the shared logic it sees |
 | `rosetta/wave.py` | ASCII waveforms of model traces |
 | `rosetta/lang.py` | Parser for the core description language (`docs/language.md` 5.1), giving a typed syntax tree |
-| `rosetta/compiler.py` | Compiler: description + role + parameters to a lane program, its mode-register values and a host manifest (UART and SPI so far, section below) |
+| `rosetta/compiler.py` | Compiler: description + role + parameters to a lane program, its mode-register values and a host manifest (UART, SPI and I2C so far, section below) |
 | `rosetta/compile.py` | Command line for the compiler |
 | `rosetta/stdlib.ros` | The standard library of check functions (`docs/language.md` 3.12) |
 
@@ -33,9 +33,12 @@ python3 -m unittest discover -s toolchain/tests
 `docs/isa.md` leaves it open, with the isa.md text each choice interprets,
 and the problems found in isa.md while building the model.
 
-`tests/test_uart_rtl.py` and `tests/test_spi_rtl.py` run compiled programs on the chip RTL
-(`src/rosetta_top.sv`) under Verilator, loading them through the host SPI
-port (`tests/rtlsim.py`, harness `tests/rtl/rosetta_tb.cpp`). It looks for
+`tests/test_uart_rtl.py`, `tests/test_spi_rtl.py` and `tests/test_i2c_rtl.py`
+run compiled programs on the chip RTL (`src/rosetta_top.sv`) under
+Verilator, loading them through the host SPI port (`tests/rtlsim.py`,
+harness `tests/rtl/rosetta_tb.cpp`). The harness wires chip outputs back to
+inputs, joins bidirectional pins into open-drain nets (wired-AND with
+pull-up) and can delay one pin's input to mimic synchroniser skew. It looks for
 Verilator in `ROSETTA_VERILATOR`, the OSS CAD Suite path or `PATH`, skips if
 there is none, and builds into `ROSETTA_SIM_BUILD` (default: a directory in
 the system temporary directory, keyed by a hash of the sources).
@@ -49,6 +52,7 @@ python3 -m rosetta.compile ../programs/uart/uart.ros --role receiver -p parity=e
 python3 -m rosetta.compile ../programs/uart/uart.ros --role sender -p baud=9600 --origin 32 -o OUT
 python3 -m rosetta.compile ../programs/spi/spi.ros --role target -p cpol=1 -p cpha=1
 python3 -m rosetta.compile ../programs/spi/spi.ros --role listener --listen-wire miso
+python3 -m rosetta.compile ../programs/i2c/i2c.ros --role target -p scl_rate=400kHz -p address=0x51
 ```
 
 The roles are the description's parties plus `listener`. A listener of a
@@ -67,7 +71,9 @@ against `tolerance`, receiver sampling window) -> generate (instruction lines
 with schedule metadata) -> schedule check (3.16 item 8) -> assemble. A
 clock-wire protocol goes through the parallel `project_b` (`RoleB`, one
 `WordOp` per repeat iteration), `timing_b` (owner's PERIOD, PIN waits from
-the rules), `_GenB` and `schedule_b`.
+the rules), `_GenB` and `schedule_b`; any other clock-wire frame through
+`project_g` (`RoleG`, `GOp` per field), `timing_g`, `_GenG` and
+`schedule_g`.
 
 Implemented so far: what the UART and SPI descriptions use. Clock-rate
 form: `clock rate` with `tolerance`, one frame with an implicit start, data
@@ -75,8 +81,14 @@ and constant fields, check functions (parity), `else end` and `else
 continue`. Clock-wire form: `clock W by P rate R capture E`, plain-edge
 events, `frame after E until E` holding one open `repeat` of a field or a
 `together`, `default`, and the rule shapes `start to W changes`, `W changes
-to end`, `end to start` and `W setup to capture`. Both: push-pull wires,
-compile-time `if`. Every other construct stops with `Unsupported` naming it.
+to end`, `end to start` and `W setup to capture`. General clock-wire frames
+(I2C): open-drain wires, `stretch by`, events `W rises|falls while V level`
+(made as PIN sequences timed by the rules, detected with a confirm window),
+`until E1 or E2` with the end choice, fields outside the repeat, named
+values, `when`, run-time `if`, `repeat ... while`, the else-end halt of the
+frame owner, pulse-width, setup, hold and edge-to-event rules. Both forms:
+push-pull wires, compile-time `if`. Every other construct stops with
+`Unsupported` naming it.
 The choices the language leaves open are listed, with the text they
 interpret, in `compiler.INTERPRETATIONS`; each is marked `# I<n>` where it is
 applied.

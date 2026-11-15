@@ -3,8 +3,8 @@
     sim = rtlsim.Chip()          # builds once per RTL/harness version, then starts
     sim.wr(addr, data); sim.rd(addr); sim.run(n); sim.wire(uo, ui); sim.close()
 
-The build goes to a cache directory outside the repository (ROSETTA_SIM_BUILD,
-or <tmp>/rosetta_verilator_<hash of the sources>). `find_verilator()` returns
+The build goes to a cache directory outside the repository:
+<ROSETTA_SIM_BUILD or tmp>/rosetta_verilator_<hash of the RTL and harness sources>. `find_verilator()` returns
 None when no Verilator is installed, so tests can skip cleanly.
 
 Host register map and loader sequences: docs/blocks/host.md 4; the helpers
@@ -67,8 +67,8 @@ def build() -> str:
     for f in srcs + [HARNESS]:
         with open(f, "rb") as fh:
             h.update(os.path.basename(f).encode() + fh.read())
-    out = os.environ.get("ROSETTA_SIM_BUILD") or os.path.join(
-        tempfile.gettempdir(), "rosetta_verilator_" + h.hexdigest()[:16])
+    base = os.environ.get("ROSETTA_SIM_BUILD") or tempfile.gettempdir()
+    out = os.path.join(base, "rosetta_verilator_" + h.hexdigest()[:16])   # rebuilt on any change
     exe = os.path.join(out, "V" + TOP)
     if os.path.isfile(exe):
         return exe
@@ -132,13 +132,23 @@ class Chip:
     def wire(self, uo: int, ui: int) -> None:
         self._cmd(f"L {uo} {ui}")
 
+    def net(self, pins: int) -> None:
+        """Join the uio pins in the mask into one open-drain net (pull-up)."""
+        self._cmd(f"N {pins & 0xFF:x}")
+
+    def skew(self, pin: int, cycles: int) -> None:
+        """uio pin `pin` reads its net `cycles` late (a slow synchroniser)."""
+        self._cmd(f"S {pin} {cycles}")
+
     def fault(self, offset: int, length: int) -> None:
         self._cmd(f"F {offset} {length}")
 
     def cycle(self) -> int:
         return int(self._cmd("C"))
 
-    def dump(self) -> list[tuple[int, int, int]]:
+    def dump(self, full: bool = False) -> list[tuple]:
+        """Pin changes since the last dump: (cycle, uo, ui), or with `full`
+        (cycle, uo, ui, uio_out, uio_oe, uio_in)."""
         assert self.proc.stdin and self.proc.stdout
         self.proc.stdin.write("D\n")
         self.proc.stdin.flush()
@@ -147,10 +157,10 @@ class Chip:
             line = self.proc.stdout.readline().strip()
             if line == "end":
                 break
-            c, uo, ui = line.split()
-            out.append((int(c), int(uo, 16), int(ui, 16)))
-        self.changes.extend(out)
-        return out
+            c, *rest = line.split()
+            out.append((int(c), *(int(x, 16) for x in rest)))
+        self.changes.extend(x[:3] for x in out)
+        return out if full else [x[:3] for x in out]
 
     # -- loader helpers (host.md 4 "typical loader sequences")
     def load_program(self, image: list[int], origin: int = 0) -> None:

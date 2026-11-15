@@ -154,6 +154,53 @@ INTERPRETATIONS = {
         "started after the others leaves cs_n low until it runs (a halted lane "
         "drives nothing), and its idle level is then an edge: the loader starts "
         "the clock owner first.",
+    25: "3.14 'for setup and hold: W's driver at that moment ... for A to B: the "
+        "owner of B': rules between clock edges and events (A to B), setup to the "
+        "capture edge, hold from the launch edge and pulse widths of the clock "
+        "are implemented; on an open-drain wire each field owner answers for its "
+        "own setup and hold.",
+    26: "3.14 'The compiler chooses PERIOD ... so that the role's own rules hold' "
+        "with `low scl` / `high scl`: PERIOD = the low phase = max(t_low, half a "
+        "bit); PERIOD2 = the rest of the bit less the 4 cycles the honoured capture "
+        "waits for scl to read high (tick.md 4.1, model D10), so the high phase on "
+        "the pin is PERIOD2 + 4; never faster than R. If t_low + t_high do not fit "
+        "1/R the program is rejected with the fastest rate.",
+    27: "G4 'an event fires only if its qualifying level still holds N cycles "
+        "after the edge. UM10204's note on 300 ns of internal hold suggests N ~ "
+        "18': every `edge while level` event gets K = 300 ns rounded up (18 "
+        "cycles at 60 MHz); the language has no syntax for it.",
+    28: "isa.md 2 'After a field's last bit it either returns to its idle level or "
+        "stays at the launch level (TICK.rest), which is what I2C needs': `rest` is "
+        "set when a frame event is conditioned on the clock wire, so the clock "
+        "never rises inside a frame except for a bit.",
+    29: "3.6 'release SDA; release SCL and wait until it reads high; wait "
+        "t_su_sta; pull SDA low; wait t_hd_sta': from inside a frame the PIN that "
+        "sets SDA also waits the clock's low pulse rule (t_low), so a target lets "
+        "go of SDA first; 'wait until it reads high' is an event on the clock "
+        "level plus WAIT (ruling 25, lane.md I28); PIN waits are whole PERIODs "
+        "(isa 3.3), rounded up. From idle only the edge and its following wait. The "
+        "frame's first host word is popped before the start event, so the bus is "
+        "not taken before the host is ready.",
+    30: "3.15 'an SPI or I2C controller pauses its clock between bits': after a "
+        "checked field (an expected ack) the clock owner's branch waits for the "
+        "end of the bit (BR M/NM is a sync instruction, sequencer.md 5.11), so the "
+        "clock rests at its launch level for a few slots before the next field. "
+        "That only lengthens t_low, so the schedule check allows it.",
+    31: "3.15 'If the role owns the frame's end events, it generates the first "
+        "event in the until list (stop, for I2C), records the error, raises the "
+        "host interrupt and halts': in exactly that order.",
+    32: "3.8 'If it is false, the owner does not drive the field (it releases the "
+        "wire) and takes the else action ... the owner records nothing': the "
+        "target branches around its DRIVE and, for else end, waits for the frame "
+        "end (no `FIELD SAMPLE` to NONE as 6.1 sketches: not driving is enough).",
+    33: "C2 'A field that steers a branch and must also reach the host ... is "
+        "sampled into a register and pushed afterwards': a party samples such a "
+        "field into a register and pushes its record after the next field is "
+        "parked (so the next field is not late); the listener samples it to CAP, "
+        "keeping its exact timestamp, and copies it with MOVSR.",
+    34: "3.7 'An event may both end one frame and begin the next: I2C start': a "
+        "role that detects it has one handler for it, which records it and starts "
+        "the frame (a repeated START is recorded once).",
 }
 
 
@@ -254,6 +301,7 @@ class WireM:
     by: Optional[str]
     idle: Union[int, str]           # 0, 1 or "released"
     line: int
+    open_drain: bool = False        # idle is then 1: released, pulled up (3.4)
 
 
 @dataclass
@@ -296,6 +344,8 @@ class FieldM:
     value_text: str = ""
     covered: bool = False           # updates the check unit
     default: Optional[int] = None   # `default EXPR` (data fields)
+    names: dict = field(default_factory=dict)   # named values (3.8)
+    when: Optional["CondM"] = None  # `when COND` (expected fields)
 
     @property
     def data(self) -> bool:
@@ -314,13 +364,15 @@ class FieldM:
 
 @dataclass
 class WireClockM:
-    """`clock W by P rate R capture E` (language.md 3.5 form B)."""
+    """`clock W by P rate R capture E [stretch by Q]` (language.md 3.5 form B)."""
     wire: str
     by: str
     rate_hz: Fraction
     capture_level: int              # level the capture edge goes to (1: rising)
     capture_text: str
     line: int
+    stretch_by: Optional[str] = None
+    rate_param: Optional[str] = None    # the parameter R is, if it is one (fastest-rate search)
 
 
 @dataclass
@@ -332,6 +384,8 @@ class EventM:
     by: str
     index: int                      # record index (I10)
     line: int
+    while_wire: Optional[str] = None
+    while_level: Optional[int] = None
 
 
 @dataclass
@@ -344,6 +398,26 @@ class TogetherM:
 class RepeatM:
     count: Optional[int]            # None: open repeat
     body: list
+    line: int
+    while_: Optional["CondM"] = None    # `repeat { } while COND`
+
+
+@dataclass
+class CondM:
+    """A run-time condition `FIELD == value` or `FIELD != value` (3.10, 3.11).
+    `field` is the occurrence it reads: the most recent one on the path."""
+    field: FieldM
+    op: str
+    value: int
+    text: str
+    line: int
+
+
+@dataclass
+class IfM:
+    cond: CondM
+    then: list
+    orelse: list
     line: int
 
 
@@ -360,6 +434,8 @@ class RuleM:
     responsible: str
     text: str
     line: int
+    a: Optional[tuple] = None       # interval rules: ("event", name) or ("clock", edge)
+    b: Optional[tuple] = None
 
 
 @dataclass
@@ -548,8 +624,6 @@ class _Elab:
             elif isinstance(item, lang.RateClock):
                 clocks.append(item)
             elif isinstance(item, lang.WireClock):
-                if item.stretch_by is not None:
-                    raise self.unsupported("clock ... stretch by PARTY", item.line)
                 clocks.append(item)
             elif isinstance(item, lang.Event):
                 self._event_shape(item)
@@ -594,10 +668,15 @@ class _Elab:
         if c.by not in self.parties:
             raise self.err(f"clock: `{c.by}` is not a party", c.line)
         w = self.wires[c.wire]
-        if w.by != c.by:
+        if w.by not in (None, c.by):
             raise self.err(f"clock wire `{c.wire}` is driven by {w.by}, not {c.by}", c.line)
         if w.idle == "released":
             raise self.err(f"clock wire `{c.wire}` needs an idle level of 0 or 1", c.line)
+        if c.stretch_by is not None:
+            if c.stretch_by not in self.parties:
+                raise self.err(f"clock: `{c.stretch_by}` is not a party", c.line)
+            if not w.open_drain:
+                raise self.err(f"`stretch by` needs an open-drain clock wire (3.5)", c.line)
         rate = self.ev(c.rate, "a rate")
         if not (isinstance(rate, Q) and rate.dim == "freq" and rate.v > 0):
             raise self.err(f"clock rate must be a frequency, found `{expr_text(c.rate)}`", c.line)
@@ -606,7 +685,8 @@ class _Elab:
             raise self.err("capture must be leading, trailing, rising or falling", c.line)
         idle = int(w.idle)
         level = {"leading": 1 - idle, "trailing": idle, "rising": 1, "falling": 0}[cap.word]
-        return WireClockM(c.wire, c.by, rate.v, level, cap.word, c.line)
+        param = c.rate.name if isinstance(c.rate, lang.Name) and c.rate.name in self.params else None
+        return WireClockM(c.wire, c.by, rate.v, level, cap.word, c.line, c.stretch_by, param)
 
     def _event_shape(self, e: lang.Event) -> None:
         cond = e.condition
@@ -614,8 +694,6 @@ class _Elab:
             raise self.unsupported("event = W high|low for D", e.line)
         if isinstance(cond, lang.BothLowCondition):
             raise self.unsupported("event = W, V both low for D", e.line)
-        if cond.while_wire is not None:
-            raise self.unsupported("event = W rises|falls|changes while V high|low", e.line)
 
     def _event(self, e: lang.Event) -> None:
         cond = e.condition
@@ -626,11 +704,16 @@ class _Elab:
             raise self.err(f"event `{e.name}`: unknown wire `{cond.wire}`", e.line)
         if e.by not in self.parties:
             raise self.err(f"event `{e.name}`: `{e.by}` is not a party", e.line)
-        if self.wires[cond.wire].by != e.by:
+        if self.wires[cond.wire].by not in (None, e.by):
             raise self.err(f"event `{e.name}`: {e.by} cannot make an edge on `{cond.wire}` "
                            f"(it is driven by {self.wires[cond.wire].by})", e.line)
+        wl = None
+        if cond.while_wire is not None:
+            if cond.while_wire not in self.wires or cond.while_wire == cond.wire:
+                raise self.err(f"event `{e.name}`: bad `while` wire `{cond.while_wire}`", e.line)
+            wl = 1 if cond.while_level == "high" else 0
         self.events[e.name] = EventM(e.name, cond.wire, cond.edge, e.by,
-                                     self.name_index[e.name], e.line)
+                                     self.name_index[e.name], e.line, cond.while_wire, wl)
 
     def _rule_shape(self, r: lang.Rule) -> None:
         if r.op != ">=":
@@ -638,17 +721,11 @@ class _Elab:
         b = r.body
         if isinstance(b, lang.Interval):
             for ref in (b.start, b.end):
-                if isinstance(ref, lang.ClockEdge) or (isinstance(ref, lang.WireEdge)
-                                                       and ref.edge != "changes"):
-                    raise self.unsupported("rule A to B with A or B a clock edge or `W rises|falls`",
-                                           r.line)
-        elif isinstance(b, lang.Setup):
-            if not (isinstance(b.edge, lang.ClockEdge) and b.edge.kind == "capture"):
-                raise self.unsupported("rule W setup to EDGE (other than capture)", r.line)
-        elif isinstance(b, lang.Hold):
-            raise self.unsupported("rule W hold from EDGE", r.line)
-        else:
-            raise self.unsupported("rule high|low W (pulse width)", r.line)
+                if isinstance(ref, lang.ClockEdge):
+                    raise self.unsupported("rule A to B with A or B `capture` or `launch`", r.line)
+        elif isinstance(b, (lang.Setup, lang.Hold)):
+            if isinstance(b.edge, lang.EventRef):
+                raise self.unsupported("rule W setup to / hold from an event", r.line)
 
     def _rule_ref(self, ref: object, line: int) -> tuple:
         if isinstance(ref, lang.EventRef):
@@ -657,8 +734,20 @@ class _Elab:
             return ("event", ref.name)
         assert isinstance(ref, lang.WireEdge)
         if not isinstance(self.clock, WireClockM) or ref.wire != self.clock.wire:
-            raise self.unsupported("rule edge `W changes` on a wire other than the clock", line)
-        return ("clock",)
+            raise self.unsupported("rule edge `W rises|falls|changes` on a wire other than the "
+                                   "clock", line)
+        return ("clock", ref.edge)
+
+    def _clock_edge(self, ref: object, line: int) -> str:
+        """`capture` or `launch` for a clock edge reference."""
+        clock = self.clock
+        if isinstance(ref, lang.ClockEdge):
+            return ref.kind
+        if isinstance(ref, lang.WireEdge) and ref.wire == clock.wire and ref.edge != "changes":
+            to = 1 if ref.edge == "rises" else 0
+            return "capture" if to == clock.capture_level else "launch"
+        raise self.unsupported("rule setup/hold against an edge that is not the clock's capture "
+                               "or launch edge", line)
 
     def _rule(self, r: lang.Rule) -> RuleM:
         if not isinstance(self.clock, WireClockM):
@@ -669,25 +758,32 @@ class _Elab:
                            f"`{expr_text(r.limit)}`", r.line)
         fr, b = self.frame, r.body
         text = f"{r.name} >= {expr_text(r.limit)}"
+        clock = self.clock
         if isinstance(b, lang.Interval):
             ka, kb = self._rule_ref(b.start, r.line), self._rule_ref(b.end, r.line)
             start, end = ("event", fr.after), ("event", fr.until[0] if fr.until else None)
-            if ka == start and kb == ("clock",):
-                return RuleM(r.name, "lead", None, lim, self.clock.by, text, r.line)
-            if ka == ("clock",) and kb == end:
-                return RuleM(r.name, "lag", None, lim, self.events[end[1]].by, text, r.line)
-            if ka == end and kb == start:
-                return RuleM(r.name, "idle", None, lim, self.events[start[1]].by, text, r.line)
-            raise self.unsupported(f"rule {r.name}: this A to B pair", r.line,
-                                   "implemented: frame start event to clock changes, clock "
-                                   "changes to frame end event, frame end event to frame start")
-        assert isinstance(b, lang.Setup)
+            resp = self.events[kb[1]].by if kb[0] == "event" else clock.by     # owner of B (3.14)
+            kind = ("lead" if ka == start and kb == ("clock", "changes") else
+                    "lag" if ka == ("clock", "changes") and kb == end else
+                    "idle" if ka == end and kb == start else "interval")
+            return RuleM(r.name, kind, None, lim, resp, text, r.line, ka, kb)
+        if isinstance(b, lang.PulseWidth):
+            if b.wire != clock.wire:
+                raise self.unsupported(f"rule {r.name}: pulse width of a wire other than the clock",
+                                       r.line)
+            return RuleM(r.name, b.level, b.wire, lim, clock.by, text, r.line)
+        edge = self._clock_edge(b.edge, r.line)
+        if isinstance(b, lang.Setup) and edge != "capture":
+            raise self.unsupported(f"rule {r.name}: setup to the launch edge", r.line)
+        if isinstance(b, lang.Hold) and edge != "launch":
+            raise self.unsupported(f"rule {r.name}: hold from the capture edge", r.line)
         owners = {f.owner for f in fr.fields if f.wire == b.wire}
         if not owners:
             raise self.err(f"rule {r.name}: no field is sent on `{b.wire}`", r.line)
-        if len(owners) > 1:
-            raise self.unsupported(f"rule {r.name}: setup on a wire with fields of two owners", r.line)
-        return RuleM(r.name, "setup", b.wire, lim, owners.pop(), text, r.line)
+        kind = "setup" if isinstance(b, lang.Setup) else "hold"
+        # on a wire several parties drive (open drain) each owner answers for its own fields
+        resp = owners.pop() if len(owners) == 1 else "owner of each field"
+        return RuleM(r.name, kind, b.wire, lim, resp, text, r.line)
 
     def _param(self, item: lang.Param) -> None:
         if item.name in self.params:
@@ -740,7 +836,15 @@ class _Elab:
         if w.coding:
             raise self.unsupported(f"wire ... coding {w.coding}", w.line)
         if w.open_drain:
-            raise self.unsupported("wire ... open_drain", w.line)
+            if w.by is not None and w.by not in self.parties:
+                raise self.err(f"wire `{w.name}`: `{w.by}` is not a party", w.line)
+            if w.idle is not None:
+                v = self.ev(w.idle, "an idle level")
+                if not ((isinstance(v, Sym) and v.word == "released") or
+                        (isinstance(v, Q) and v.dim is None and v.v == 1)):
+                    raise self.err(f"open-drain wire `{w.name}` is idle released (3.4)", w.line)
+            self.wires[w.name] = WireM(w.name, w.by, 1, w.line, open_drain=True)
+            return
         if w.by is None:
             raise self.err(f"push-pull wire `{w.name}` needs `by PARTY` (3.4)", w.line)
         if w.by not in self.parties:
@@ -781,12 +885,11 @@ class _Elab:
         if fr.until:
             if not form_b:
                 raise self.unsupported("frame ... until EVENT (clock-rate form)", fr.line)
-            if len(fr.until) > 1:
-                raise self.unsupported("frame ... until E1 or E2 (end choice)", fr.line)
-            if fr.until[0] not in self.events:
-                raise self.err(f"frame `{fr.name}`: unknown event `{fr.until[0]}`", fr.line)
+            for u in fr.until:
+                if u not in self.events:
+                    raise self.err(f"frame `{fr.name}`: unknown event `{u}`", fr.line)
         fields: list[FieldM] = []
-        body = self._stmts(fr.body, fields, form_b)
+        body = self._stmts(fr.body, fields, form_b, [])
         if not fields:
             raise self.err(f"frame `{fr.name}` has no fields for these parameters", fr.line)
         checks = {f.value.crc.name for f in fields if isinstance(f.value, CheckM)}
@@ -794,10 +897,7 @@ class _Elab:
             raise self.err(f"frame `{fr.name}` uses {len(checks)} check values "
                            f"({', '.join(sorted(checks))}); a lane has one check unit (3.12)", fr.line)
         if form_b:
-            for i, st in enumerate(body):                     # 3.7, 3.16 item 3
-                if isinstance(st, RepeatM) and st.count is None and (i != len(body) - 1 or not fr.until):
-                    raise self.err("an open repeat must be the last statement of a frame with "
-                                   "`until` (3.7)", st.line)
+            self._open_repeats_last(body, True, bool(fr.until))         # 3.7, 3.16 item 3
             return FrameM(fr.name, fields, False, fr.line, fr.after, tuple(fr.until), body)
         first = fields[0]
         idle = self.wires[first.wire].idle
@@ -808,34 +908,84 @@ class _Elab:
                            f"`{first.wire}` (3.5)", first.line)
         return FrameM(fr.name, fields, True, fr.line, None, (), body)
 
-    def _stmts(self, stmts: tuple, fields: list[FieldM], form_b: bool) -> list:
+    def _open_repeats_last(self, body: list, last: bool, has_until: bool) -> None:
+        for i, st in enumerate(body):
+            tail = last and i == len(body) - 1
+            if isinstance(st, RepeatM):
+                if st.count is None and st.while_ is None and not (tail and has_until):
+                    raise self.err("an open repeat must be the last statement of a frame with "
+                                   "`until` (3.7)", st.line)
+                self._open_repeats_last(st.body, False, has_until)
+            elif isinstance(st, IfM):
+                self._open_repeats_last(st.then, tail, has_until)
+                self._open_repeats_last(st.orelse, tail, has_until)
+
+    def _runtime(self, e: object) -> bool:
+        return any(isinstance(n, lang.Name) and n.name in self.field_names and n.name not in self.params
+                   for n in lang.walk(e))
+
+    def _cond(self, e: object, seen: list[FieldM], what: str) -> CondM:
+        """A run-time condition: FIELD == value or FIELD != value, where FIELD
+        is the most recent complete occurrence on this path (3.8, 3.16 item 2)."""
+        line = getattr(e, "line", 0)
+        if isinstance(e, lang.Binary) and e.op in ("==", "!="):
+            for fe, ve in ((e.left, e.right), (e.right, e.left)):
+                if isinstance(fe, lang.Name) and fe.name in self.field_names:
+                    hits = [f for f in seen if f.name == fe.name]
+                    if not hits:
+                        raise self.err(f"{what} uses `{fe.name}`, which is not complete here "
+                                       "(3.16 item 2)", line)
+                    f = hits[-1]
+                    if isinstance(ve, lang.Name) and ve.name in f.names:
+                        v = f.names[ve.name]
+                    else:
+                        v = self._int(ve, f"the value compared with `{f.name}`")
+                    if not 0 <= v < (1 << f.width):
+                        raise self.err(f"{what}: {v} does not fit `{f.name}`", line)
+                    return CondM(f, e.op, v, expr_text(e), line)
+        raise self.unsupported(f"{what} other than FIELD == value or FIELD != value", line)
+
+    def _stmts(self, stmts: tuple, fields: list[FieldM], form_b: bool, seen: list[FieldM]) -> list:
         """Statements with compile-time `if`s resolved; every field is also
-        appended to `fields` in description order."""
+        appended to `fields` in description order, and to `seen` (the fields
+        complete so far on this path)."""
         out: list = []
         for s in stmts:
             if isinstance(s, lang.Field):
-                f = self._field(s, fields)
+                f = self._field(s, fields, seen)
                 fields.append(f)
+                seen.append(f)
                 out.append(f)
             elif isinstance(s, lang.If):
-                if self._bool(self.ev(s.cond, "an `if` condition"), s.line):
-                    out += self._stmts(s.body, fields, form_b)
+                if self._runtime(s.cond):
+                    if not form_b:
+                        raise self.unsupported("if on a field (run-time branch) in clock-rate form",
+                                               s.line)
+                    cond = self._cond(s.cond, seen, "an `if` condition")
+                    then = self._stmts(s.body, fields, form_b, list(seen))
+                    orelse = (self._stmts((s.orelse,), fields, form_b, list(seen))
+                              if isinstance(s.orelse, lang.If) else
+                              self._stmts(s.orelse, fields, form_b, list(seen)) if s.orelse else [])
+                    out.append(IfM(cond, then, orelse, s.line))
+                elif self._bool(self.ev(s.cond, "an `if` condition"), s.line):
+                    out += self._stmts(s.body, fields, form_b, seen)
                 elif isinstance(s.orelse, lang.If):
-                    out += self._stmts((s.orelse,), fields, form_b)
+                    out += self._stmts((s.orelse,), fields, form_b, seen)
                 elif s.orelse is not None:
-                    out += self._stmts(s.orelse, fields, form_b)
+                    out += self._stmts(s.orelse, fields, form_b, seen)
             elif isinstance(s, lang.Repeat):
                 if not form_b:
                     raise self.unsupported("repeat", s.line)
-                if s.while_ is not None:
-                    raise self.unsupported("repeat { } while COND", s.line)
                 if s.count is not None:
                     raise self.unsupported("repeat N (counted)", s.line)
-                out.append(RepeatM(None, self._stmts(s.body, fields, form_b), s.line))
+                inner = list(seen)
+                body = self._stmts(s.body, fields, form_b, inner)
+                cond = self._cond(s.while_, inner, "a `while` condition") if s.while_ else None
+                out.append(RepeatM(None, body, s.line, cond))
             elif isinstance(s, lang.Together):
                 if not form_b:
                     raise self.unsupported("together", s.line)
-                inner = self._stmts(s.body, fields, form_b)
+                inner = self._stmts(s.body, fields, form_b, seen)
                 if len(inner) != 2 or not all(isinstance(x, FieldM) for x in inner):
                     raise self.err("`together` holds exactly two fields (3.9)", s.line)
                 a, b = inner
@@ -847,7 +997,7 @@ class _Elab:
                 raise self.err("unexpected statement in a frame", getattr(s, "line", 0))
         return out
 
-    def _field(self, f: lang.Field, before: list[FieldM]) -> FieldM:
+    def _field(self, f: lang.Field, before: list[FieldM], seen: list[FieldM]) -> FieldM:
         if f.owner not in self.parties:
             raise self.err(f"field `{f.name}`: `{f.owner}` is not a party", f.line)
         width = self._int(f.width, f"the width of `{f.name}`")
@@ -857,11 +1007,19 @@ class _Elab:
             raise self.unsupported("field wider than 32 bits", f.line, "the compiler must split it")
         if width > 1 and f.order is None:
             raise self.err(f"field `{f.name}` is wider than one bit and needs msb or lsb (3.8)", f.line)
-        if f.names:
-            raise self.unsupported("named values (N = v, ...)", f.line)
-        if f.when is not None:
-            raise self.unsupported("when", f.line)
         form_b = isinstance(self.clock, WireClockM)
+        if f.names and not form_b:
+            raise self.unsupported("named values (N = v, ...) in clock-rate form", f.line)
+        names: dict[str, int] = {}
+        for nv in f.names:
+            if nv.name in names:
+                raise self.err(f"`{f.name}`: value name `{nv.name}` given twice", nv.line)
+            v = self._int(nv.value, f"the value of `{nv.name}`")
+            if not 0 <= v < (1 << width):
+                raise self.err(f"`{f.name}`: {nv.name} = {v} does not fit {width} bit(s)", nv.line)
+            names[nv.name] = v
+        if f.when is not None and not form_b:
+            raise self.unsupported("when (clock-rate form)", f.line)
         carriers = [w for w in self.wires if not (form_b and w == self.clock.wire)]
         if f.wire is not None:
             if f.wire not in self.wires:
@@ -873,7 +1031,7 @@ class _Elab:
             wire = carriers[0]
         else:
             raise self.err(f"field `{f.name}` needs `on WIRE`: more than one wire can carry it", f.line)
-        if self.wires[wire].by != f.owner:
+        if self.wires[wire].by not in (None, f.owner):
             raise self.err(f"field `{f.name}`: `{f.owner}` cannot drive wire `{wire}` "
                            f"(it is driven by {self.wires[wire].by})", f.line)
         value: Union[None, int, CheckM] = None
@@ -894,12 +1052,22 @@ class _Elab:
             default = self._int(f.default, f"the default of `{f.name}`")
             if not 0 <= default < (1 << width):
                 raise self.err(f"default {default} of `{f.name}` does not fit {width} bit(s)", f.line)
-        if (form_b and f.value is None and default is None and f.owner != self.clock.by):
+        if (form_b and f.value is None and default is None and f.owner != self.clock.by
+                and f.owner != self.clock.stretch_by):
             raise self.err(f"data field `{f.name}`: its owner {f.owner} does not control the "
                            "timing, so it needs a `default` (3.16 item 4)", f.line)
+        when = None
+        if f.when is not None:
+            if f.value is None:
+                raise self.err(f"`when` is for expected fields only (3.8): `{f.name}`", f.line)
+            if not self.wires[wire].open_drain or not isinstance(value, int) \
+                    or value == (1 << width) - 1:
+                raise self.err(f"`when` on `{f.name}` needs an open-drain wire and an expected "
+                               "value with a 0 bit (3.16 item 5)", f.line)
+            when = self._cond(f.when, seen, "a `when` condition")
         on_error = f.on_error or "end"
         return FieldM(f.owner, f.name, width, f.order, wire, value, on_error,
-                      self.name_index[f.name], f.line, text, default=default)
+                      self.name_index[f.name], f.line, text, default=default, names=names, when=when)
 
     def _check(self, f: lang.Field, width: int, before: list[FieldM]) -> CheckM:
         call = f.value
@@ -1189,6 +1357,9 @@ class Line:
     clears_event: bool = False
     mark: str = ""                  # anchor for the clock-wire schedule check
     entry: str = ""                 # first line of an event handler: "start" or "end"
+    uses: tuple = ()                # registers it reads (waits while a result is due: HAZ)
+    aliases: tuple = ()             # further labels at the same address
+    rec: object = None              # the field a record instruction reports
 
 
 def _setm(reg: str, **fields: object) -> str:
@@ -1217,6 +1388,7 @@ class _Gen:
         ln = Line(text, comment, **kw)
         if self.pending_label:
             ln.label, self.pending_label = self.pending_label, None
+            ln.aliases, self.pending_aliases = tuple(getattr(self, "pending_aliases", ())), []
         self.lines.append(ln)
         return ln
 
@@ -1228,8 +1400,10 @@ class _Gen:
         return name
 
     def place(self, name: str) -> None:
-        assert self.pending_label is None
-        self.pending_label = name
+        if self.pending_label is None:
+            self.pending_label = name
+        else:                                   # several labels at one address
+            self.pending_aliases = list(getattr(self, "pending_aliases", [])) + [name]
 
     # ---- program
     def run(self) -> list[Line]:
@@ -1336,9 +1510,18 @@ class _Gen:
             self.place(ok)
 
 
+def _label_index(lines: list[Line]) -> dict[str, int]:
+    out = {}
+    for i, ln in enumerate(lines):
+        for name in ((ln.label,) if ln.label else ()) + ln.aliases:
+            out[name] = i
+    return out
+
+
 def render(lines: list[Line]) -> str:
     out = []
     for ln in lines:
+        out.extend(f"{a}:" for a in ln.aliases)
         lab = f"{ln.label}:" if ln.label else ""
         if len(lab) >= 8:
             out.append(lab)
@@ -1368,7 +1551,7 @@ class Check:
 def _paths(lines: list[Line], frame: str) -> list[list[int]]:
     """Every path through the frame body: from the frame label until control
     returns to it. Conditional branches are taken both ways."""
-    index = {ln.label: i for i, ln in enumerate(lines) if ln.label}
+    index = _label_index(lines)
     start = index[frame]
     out: list[list[int]] = []
 
@@ -1922,7 +2105,7 @@ def _walk_count(lines: list[Line], start: int, stop, barrier=lambda ln: False) -
     first line with stop(line), over every branch path; a path does not
     revisit a line, and a path through a line with barrier(line) does not
     count. -1 if no path reaches such a line."""
-    index = {ln.label: i for i, ln in enumerate(lines) if ln.label}
+    index = _label_index(lines)
     best = -1
 
     def go(i: int, n: int, seen: frozenset) -> None:
@@ -2106,6 +2289,9 @@ def _manifest_b(ir: RoleB, words: list[int], origin: int, regs: dict[str, int],
 
 def _compile_b(pm: ProtocolM, role: str, clock_hz: int, origin: int,
                listen_wire: Optional[str]) -> "Compiled":
+    for r in pm.rules:
+        if r.kind not in ("lead", "lag", "idle", "setup"):
+            raise Unsupported(f"rule {r.name} in a frame of one open repeat", r.line, pm.filename)
     ir = project_b(pm, role, clock_hz, listen_wire)
     lines = _GenB(ir).run()             # type: ignore[arg-type]
     if ir.listener and any(ln.kind == "pin" or ln.text.startswith(("FIELD DRIVE", "FIELD EXCHANGE"))
@@ -2142,6 +2328,919 @@ def _check_rulings(words: list[int], low_phase: Fraction) -> None:
                                    "(decisions.md ruling 53)")
         if ins.op == "FIELD" and ins.get("seek") and mode == isa.TICK_MODES["BAUD"]:
             raise CompileError("`seek` in BAUD timing is not allowed (decisions.md ruling 49)")
+
+
+# ============================================================== clock-wire form, general (I2C)
+#
+# Frames with fields outside a repeat, run-time `if`, `repeat ... while`,
+# `when`, several end events, events with `while`, open-drain wires and
+# clock stretching. One data wire carries every field. The clock owner makes
+# the frame events as PIN sequences timed by the rules (3.6); everyone else
+# detects them with event detectors and a confirm window K (G4).
+
+CONFIRM_NS = 300    # confirm window for edge-while-level events (G4: UM10204's 300 ns hold)
+
+
+@dataclass
+class GOp:
+    """One field as one role runs it (the general clock-wire form)."""
+    f: FieldM
+    kind: str                       # DRIVE, SAMPLE or EXPECT
+    src: str = "NONE"
+    dst: str = "NONE"
+    tag: int = 0
+
+    @property
+    def deliveries(self) -> int:
+        return 0 if self.dst == "NONE" else 2 if self.dst == "CAP" else 1
+
+    @property
+    def srcdep(self) -> bool:
+        return False
+
+    @property
+    def dst_reg(self) -> Optional[int]:
+        return int(self.dst[1]) if self.dst in ("R0", "R1", "R2", "R3") else None
+
+
+@dataclass
+class TimingG:
+    rate: Fraction
+    nominal: Fraction               # cycles per bit at R
+    capture_level: int
+    idle_level: int
+    rules: dict = field(default_factory=dict)       # low, high, setup, hold -> cycles at R
+    intervals: list = field(default_factory=list)   # (a, b, cycles, name)
+    prescale: int = 1
+    period: Optional[int] = None    # owner: low phase; stretcher: release delay (D11)
+    period2: Optional[int] = None   # owner: high phase less the honour round trip
+    honour: bool = False
+    delay: int = 0                  # owner: launch delay for the hold rule
+    k: int = 0                      # confirm window (cycles)
+
+    @property
+    def launch_level(self) -> int:
+        return 1 - self.capture_level
+
+    def pulse(self, level: int) -> Fraction:
+        """Minimum time the clock stays at `level`, from the rules (else half a bit)."""
+        return self.rules.get("high" if level else "low", self.nominal / 2)
+
+    @property
+    def period_min(self) -> Fraction:
+        return self.pulse(0) + self.pulse(1)
+
+
+@dataclass
+class RoleG:
+    proto: ProtocolM
+    role: str
+    listener: bool
+    clock_hz: int
+    timing: TimingG
+    outputs: dict[str, int]
+    inputs: dict[str, int]
+    clock_owner: bool
+    stretcher: bool
+    data_wire: str
+    events: list                    # frame events: after first, then the other until events
+    cond_fields: set                # id() of fields whose value a condition reads
+
+
+def _general_shape(pm: ProtocolM) -> bool:
+    """False for the SPI-shaped frame that project_b handles."""
+    fr, clock = pm.frame, pm.clock
+    spi = (len(fr.body) == 1 and isinstance(fr.body[0], RepeatM) and fr.body[0].count is None
+           and fr.body[0].while_ is None and len(fr.body[0].body) == 1
+           and isinstance(fr.body[0].body[0], (FieldM, TogetherM)) and len(fr.until) == 1
+           and not any(w.open_drain for w in pm.wires.values()) and clock.stretch_by is None
+           and not any(e.while_wire for e in pm.events.values()))
+    return not spi
+
+
+def _walk_body(body: list):
+    for st in body:
+        if isinstance(st, FieldM):
+            yield st
+        elif isinstance(st, TogetherM):
+            yield from st.fields
+        elif isinstance(st, IfM):
+            yield from _walk_body(st.then)
+            yield from _walk_body(st.orelse)
+        elif isinstance(st, RepeatM):
+            yield from _walk_body(st.body)
+
+
+def _conds(body: list):
+    for st in body:
+        if isinstance(st, FieldM) and st.when:
+            yield st.owner, st.when
+        elif isinstance(st, IfM):
+            yield None, st.cond
+            yield from _conds(st.then)
+            yield from _conds(st.orelse)
+        elif isinstance(st, RepeatM):
+            if st.while_:
+                yield None, st.while_
+            yield from _conds(st.body)
+
+
+def project_g(pm: ProtocolM, role: str, clock_hz: int, listen_wire: Optional[str]) -> RoleG:
+    roles = list(pm.parties) + ["listener"]
+    if role not in roles:
+        raise CompileError(f"`{role}` is not a role of {pm.name} (roles: {', '.join(roles)})")
+    fn, fr, clock = pm.filename, pm.frame, pm.clock
+    assert isinstance(clock, WireClockM)
+    if listen_wire is not None:
+        raise CompileError("listen_wire is only for a listener of `together` fields on two wires")
+    listener = role == "listener"
+    for st in _walk_stmts(fr.body):
+        if isinstance(st, TogetherM):
+            raise Unsupported("together in a frame with fields outside a repeat", st.line, fn)
+        if isinstance(st, FieldM) and isinstance(st.value, CheckM):
+            raise Unsupported("a check value in a clock-wire frame", st.line, fn)
+    fields = list(_walk_body(fr.body))
+    wires = {f.wire for f in fields}
+    if len(wires) != 1:
+        raise Unsupported("fields on more than one wire in this frame shape", fr.line, fn)
+    data = wires.pop()
+    events = [pm.events[fr.after]] + [pm.events[u] for u in fr.until if u != fr.after]
+    for e in events:
+        if e.by != clock.by:
+            raise Unsupported("a frame event made by a role that does not own the clock", e.line, fn)
+        if e.wire != data or e.while_wire not in (None, clock.wire) or e.edge == "changes":
+            raise Unsupported("a frame event other than `DATA rises|falls [while CLOCK level]`",
+                              e.line, fn)
+    clock_owner, stretcher = role == clock.by, role == clock.stretch_by
+    drives = clock_owner or any(f.owner == role for f in fields)
+    samples = listener or any(f.owner != role for f in fields)
+    outputs: dict[str, int] = {}
+    if drives and not listener:
+        outputs[data] = 0
+    if clock_owner or stretcher:
+        outputs[clock.wire] = 3
+    for w in pm.wires.values():
+        if w.by == role and w.name not in outputs:
+            raise Unsupported(f"wire `{w.name}` driven without fields or events", w.line, fn)
+    inputs: dict[str, int] = {}
+    if samples:
+        inputs[data] = 0
+    inputs.setdefault(clock.wire, len(inputs))              # EDGE ticks, honour, the level wait
+    cond_fields = {id(c.field) for owner, c in _conds(fr.body) if owner in (None, role)}
+    il = int(pm.wires[clock.wire].idle)
+    ir = RoleG(pm, role, listener, clock_hz, None, outputs, inputs, clock_owner,    # type: ignore[arg-type]
+               stretcher, data, events, cond_fields)
+    ir.timing = timing_g(pm, ir)
+    return ir
+
+
+def _walk_stmts(body: list):
+    for st in body:
+        yield st
+        if isinstance(st, IfM):
+            yield from _walk_stmts(st.then)
+            yield from _walk_stmts(st.orelse)
+        elif isinstance(st, RepeatM):
+            yield from _walk_stmts(st.body)
+
+
+def timing_g(pm: ProtocolM, ir: RoleG) -> TimingG:
+    clock = pm.clock
+    assert isinstance(clock, WireClockM)
+    clk = Fraction(ir.clock_hz)
+    nominal = clk / clock.rate_hz
+    t = TimingG(clock.rate_hz, nominal, clock.capture_level, int(pm.wires[clock.wire].idle))
+    for r in pm.rules:                                                       # I25, as I16
+        cyc = r.limit.v * (clk if r.limit.dim == "time" else nominal)
+        if r.a is not None:
+            t.intervals.append((r.a, r.b, cyc, r.name))
+        else:
+            t.rules[r.kind] = cyc
+    t.k = math.ceil(Fraction(CONFIRM_NS, 10**9) * clk)                      # I27
+    if t.k > 63:
+        raise CompileError("the confirm window does not fit the 6-bit K at this clock")
+    line, fn = clock.line, pm.filename
+    if ir.clock_owner:                                                       # I26
+        t.honour = clock.stretch_by is not None
+        rt = IN_LAT + OUT_LAT if t.honour else 0       # the capture waits until the pin reads high
+        low = math.ceil(t.pulse(t.launch_level))       # the launch level is the clock's low here
+        high = math.ceil(t.pulse(t.capture_level))
+        if low + max(high, rt + 1) > nominal:
+            fastest = clk / (low + max(high, rt + 1))
+            raise CompileError(f"clock rate {_hz(clock.rate_hz)}: the rules need a clock period of at "
+                               f"least {low + max(high, rt + 1)} cycles ({low} at the launch level, "
+                               f"{max(high, rt + 1)} at the capture level), {float(nominal):.2f} at "
+                               f"this rate (3.16 item 7). Fastest rate: {float(fastest):.0f} Hz",
+                               line, fn)
+        bit = math.ceil(nominal)                       # never faster than R (I15)
+        p = next((p for p in PRESCALES if math.ceil(max(low, bit / 2) / p) <= 0xFFFF), None)
+        if p is None:
+            raise CompileError(f"clock rate {_hz(clock.rate_hz)} is too slow for the BAUD timer", line, fn)
+        pd = math.ceil(max(Fraction(low), Fraction(bit, 2)) / p)
+        p2 = max(math.ceil(Fraction(max(high - rt, 1), p)), math.ceil(Fraction(bit - pd * p - rt, p)))
+        t.prescale, t.period, t.period2 = p, pd, p2
+        t.delay = math.ceil(t.rules.get("hold", 0))
+        if t.delay > 255:
+            raise CompileError("the hold rule needs a launch delay above 255 cycles", line, fn)
+    elif ir.stretcher:
+        t.period = max(1, math.ceil(t.rules.get("setup", 1)))   # D11: setup before release
+    return t
+
+
+def _wait_units(t: TimingG, cycles: Fraction) -> int:
+    """PIN waits count PERIOD intervals (isa 3.3)."""
+    return math.ceil(cycles / (t.period * t.prescale)) if cycles > 0 else 0
+
+
+class _GenG(_Gen):
+    """Code generation for the general clock-wire form."""
+
+    def __init__(self, ir: RoleG) -> None:          # type: ignore[override]
+        super().__init__(ir)                        # type: ignore[arg-type]
+        self.free = [0, 1, 2, 3]
+        self.reg: dict[int, int] = {}               # id(field) -> register holding its value
+        self.pending: list = []                     # records waiting for the next field
+        self.out_of_line: list = []
+        self.stage_reg: Optional[int] = None
+        self.ev_k: dict[str, int] = {}
+        self.entry_next = ""
+        self.idle = ""
+
+    def alloc(self, why: str, line: int) -> int:
+        if not self.free:
+            raise Unsupported(f"a role that needs more than 4 registers ({why})", line,
+                              self.ir.proto.filename)
+        return self.free.pop(0)
+
+    def release(self, r: int) -> None:
+        if r not in self.free:
+            self.free.append(r)
+            self.free.sort()
+
+    # ---- helpers
+    def level_text(self, wire: str, level: int) -> str:
+        return "z" if (level == 1 and self.ir.proto.wires[wire].open_drain) else str(level)
+
+    def flush(self, only: Optional[FieldM] = None) -> None:
+        keep = []
+        for fld, emit in self.pending:
+            if only is None or fld is only:
+                emit()
+            else:
+                keep.append((fld, emit))
+        self.pending = keep
+
+    def record_event(self, e: EventM) -> list:
+        lines = []
+        if self.ir.listener:
+            lines.append(("Q     PUSHTS", f"{e.name}: timestamp word", "ts:" + e.name))
+        lines.append((f"Q     PUSHI 0, tag=0x{e.index:02X}", f"{e.name} record", ""))
+        return lines
+
+    def emit_record(self, lines: list, entry: str = "") -> None:
+        for i, (text, note, mark) in enumerate(lines):
+            self.emit(text, note, mark=mark, entry=entry if i == 0 else "")
+
+    # ---- program
+    def run(self) -> list[Line]:                        # type: ignore[override]
+        ir, t, pm = self.ir, self.ir.timing, self.ir.proto
+        clock = pm.clock
+        frame = self.label(pm.frame.name)
+        cin = ir.inputs[clock.wire]
+        tick: dict[str, object] = {"mode": "BAUD" if ir.clock_owner else "EDGE",
+                                   "clock_in": f"in{cin}"}
+        if t.prescale > 1:
+            tick["prescale"] = t.prescale
+        if t.capture_level == 0:
+            tick["capture"] = "FALLING"
+        od = pm.wires[clock.wire].open_drain
+        if ir.clock_owner or ir.stretcher:
+            tick.update(clock_out=1, clock_idle=t.idle_level, clock_od=int(od))
+        if ir.clock_owner:
+            tick["rest"] = int(any(e.while_wire == clock.wire for e in ir.events))   # I28
+            tick["stretch_honour"] = int(t.honour)
+        if ir.stretcher:
+            tick["stretch_hold"] = 1
+        self.emit(_setm("TICK", **tick), f"{clock.wire}: " + (
+            "clock owner" if ir.clock_owner else "follows" + (", may stretch" if ir.stretcher else "")))
+        if ir.clock_owner:
+            self.emit(f"SETM  PERIOD, {t.period}", f"{clock.wire} low (launch to capture)")
+            self.emit(f"SETM  PERIOD2, {t.period2}", f"{clock.wire} high, after the capture"
+                      + (" reads high" if t.honour else ""))
+        elif ir.stretcher:
+            self.emit(f"SETM  PERIOD, {t.period}", f"{ir.data_wire} setup before a held "
+                                                    f"{clock.wire} is released (D11)")
+        code: dict[str, object] = {}
+        if ir.data_wire in ir.inputs:
+            code["data_in"] = f"in{ir.inputs[ir.data_wire]}"
+        if ir.data_wire in ir.outputs and pm.wires[ir.data_wire].open_drain:
+            code["data_od"] = 1
+        self.emit(_setm("CODE", **code), f"{ir.data_wire}" + (" open-drain" if code.get("data_od") else ""))
+        if ir.data_wire in ir.outputs:
+            self.emit(f"SETM  THR2L, {t.delay << 8}" if t.delay else "SETM  THR2L, 0",
+                      f"launch delay {t.delay}")
+        if ir.clock_owner:
+            lv = ir.events[0].while_level
+            self.emit(f"SETM  EVC0, a=in{cin}, trigger=LEVEL, level={'HIGH' if lv else 'LOW'}",
+                      f"E0: {clock.wire} reads {lv} (the waits of 3.6, ruling 25)")
+        elif not ir.clock_owner:
+            for k, e in enumerate(ir.events):
+                self.ev_k[e.name] = k
+                b = ""
+                if e.while_wire:
+                    b = (f", b=in{ir.inputs[e.while_wire]}, b_must={'HIGH' if e.while_level else 'LOW'}"
+                         f", k={t.k}")
+                lv = "HIGH" if e.edge == "rises" else "LOW"
+                self.emit(f"SETM  EVC{k}, a=in{ir.inputs[e.wire]}, trigger=EDGE, level={lv}{b}",
+                          f"E{k}: {e.name}" + (f", confirmed for {t.k} cycles (G4)" if b else ""))
+        outs = sorted(ir.outputs.items(), key=lambda x: x[1])
+        if outs:
+            self.emit("PIN   " + ", ".join(f"out{k}={self.level_text(w, int(pm.wires[w].idle))}"
+                                           if pm.wires[w].idle != "released" else f"out{k}=z"
+                                           for w, k in outs),
+                      ", ".join(f"{w} idle" for w, _ in outs), kind="pin")
+        if ir.clock_owner:
+            self.owner(frame)
+        else:
+            self.observer(frame)
+        while self.out_of_line:
+            self.out_of_line.pop(0)()
+        return self.lines
+
+    # ---- the clock owner
+    def owner(self, frame: str) -> None:
+        ir, pm = self.ir, self.ir.proto
+        fr = pm.frame
+        first = next(iter(_walk_body(fr.body)))
+        stage = first.owner == ir.role and first.data
+        idle, body = self.label("idle"), self.label(fr.name)
+        self.idle = idle
+        if stage:                                                            # as I6 and I29
+            self.stage_reg = self.alloc("staged host word", first.line)
+            self.reg[id(first)] = self.stage_reg
+        self.place(idle)
+        if stage:
+            self.emit(f"Q     POP R{self.stage_reg}", f"{first.name}: host word before "
+                      f"{ir.events[0].name}", kind="pop")
+        self.gen_event(ir.events[0], from_frame=False)
+        self.place(body)
+        self.body(fr.body)
+        self.frame_end_owner(idle, body)
+
+    def gen_event(self, e: EventM, from_frame: bool) -> None:                     # I29
+        """Make `W edge while V level` (3.6) with PINs timed by the rules."""
+        ir, t, pm = self.ir, self.ir.timing, self.ir.proto
+        clock = pm.clock
+        w, v = ir.outputs[e.wire], ir.outputs[clock.wire]
+        edge = 1 if e.edge == "rises" else 0
+        before = 1 - edge
+        half = t.nominal / 2
+        su = max([c for a, b, c, _ in t.intervals if b == ("event", e.name) and a[0] == "clock"],
+                 default=half)
+        after = max([c for a, b, c, _ in t.intervals if a == ("event", e.name)], default=half)
+        w_after = _wait_units(t, after)
+        if from_frame:
+            rest = t.launch_level
+            if e.while_level is None or e.while_level == rest:
+                raise Unsupported("making an event whose `while` level is the clock's rest level",
+                                  e.line, pm.filename)
+            w_low = _wait_units(t, t.pulse(rest))
+            self.emit(f"PIN   out{w}={self.level_text(e.wire, before)}, wait={w_low}",
+                      f"{e.wire} to {before}, {clock.wire} stays {rest} (pulse rule)", kind="pin")
+            self.emit(f"EVT   0, {self.idle}, off, clear", f"forget {clock.wire} episodes")
+            self.emit(f"PIN   out{v}={self.level_text(clock.wire, e.while_level)}",
+                      f"release {clock.wire}", kind="pin")
+            self.emit("WAIT  E0", f"until {clock.wire} reads {e.while_level} (it may be stretched)",
+                      kind="wait_event")
+            w_su = _wait_units(t, su)
+            if e.name == ir.events[0].name:     # the clock then falls: keep its pulse rule too
+                w_high = _wait_units(t, t.pulse(e.while_level))
+                if w_su + w_after < w_high:
+                    w_after = w_high - w_su
+            if w_su:
+                self.emit(f"PIN   wait={w_su}", f"{clock.wire} {e.while_level} to {e.name}", kind="pin")
+        else:
+            idle_w, idle_c = int(pm.wires[e.wire].idle), int(pm.wires[clock.wire].idle)
+            if idle_w != before or (e.while_level is not None and idle_c != e.while_level):
+                raise Unsupported("making the frame start event from idle wires that are not at "
+                                  "its starting levels", e.line, pm.filename)
+        self.emit(f"PIN   out{w}={self.level_text(e.wire, edge)}" + (f", wait={w_after}" if w_after else ""),
+                  f"{e.name}", kind="pin")
+
+    def frame_end_owner(self, idle: str, body: str) -> None:
+        ir, pm = self.ir, self.ir.proto
+        fr = pm.frame
+        for r in list(self.reg.values()):
+            if r != self.stage_reg:
+                self.release(r)
+        until = [pm.events[u] for u in fr.until]
+        if len(until) > 1:                                                   # 3.15 end choice
+            re_ = self.alloc("end choice", fr.line)
+            self.emit(f"Q     POP R{re_}", "frame end: " + ", ".join(f"{i} {u.name}"
+                                                                     for i, u in enumerate(until)),
+                      kind="pop")
+            labels = [self.label("end_" + u.name) for u in until]
+            for i, lab in enumerate(labels[:-1]):
+                self.emit(f"CMP   R{re_}, {i}", uses=(re_,))
+                self.emit(f"BR    Z, {lab}", target=lab, cond="Z")
+            self.emit(f"BR    always, {labels[-1]}", target=labels[-1], cond="always")
+            self.release(re_)
+        else:
+            labels = [None]
+        for u, lab in zip(until, labels):
+            if lab:
+                self.place(lab)
+            if u.name == fr.after:                                           # repeated start
+                if self.stage_reg is not None:
+                    first = next(iter(_walk_body(fr.body)))
+                    self.emit(f"Q     POP R{self.stage_reg}", f"{first.name}: host word", kind="pop")
+                self.gen_event(u, from_frame=True)
+                self.emit(f"BR    always, {body}", target=body, cond="always")
+            else:
+                self.gen_event(u, from_frame=True)
+                self.emit(f"BR    always, {idle}", target=idle, cond="always")
+
+    # ---- observers
+    def observer(self, frame: str) -> None:
+        ir, pm = self.ir, self.ir.proto
+        fr = pm.frame
+        start = self.label(fr.after)                                             # I34
+        handlers = {e.name: (start if e.name == fr.after else self.label(e.name)) for e in ir.events}
+        for e in reversed(ir.events):
+            k = self.ev_k[e.name]
+            self.emit(f"EVT   {k}, {handlers[e.name]}, on, clear", f"{e.name} -> {handlers[e.name]}")
+        self.emit("WAIT  none", "until an event", kind="wait_event")
+        for e in ir.events[1:]:
+            self.place(handlers[e.name])
+            first = True
+            if ir.data_wire in ir.outputs:                                   # as I23
+                self.emit("PIN   out0=z", f"{e.name}: {ir.data_wire} released", kind="pin", entry="end")
+                first = False
+            self.emit_record(self.record_event(e), entry="end" if first else "")
+            self.emit("WAIT  none", "until the next frame", kind="wait_event")
+        self.place(start)
+        entry = "start"
+        if ir.data_wire in ir.outputs:
+            self.emit("PIN   out0=z", f"{fr.after}: {ir.data_wire} released", kind="pin", entry=entry)
+            entry = ""
+        self.pending.append((None, lambda: self.emit_record(self.record_event(ir.events[0]))))
+        self.entry_next = entry
+        self.body(fr.body)
+        self.flush()
+        self.emit("WAIT  none", "frame body done: until the end event", kind="wait_event")
+
+    # ---- statements (both kinds of role)
+    def body(self, stmts: list) -> None:
+        for st in stmts:
+            if isinstance(st, FieldM):
+                self.field(st)
+            elif isinstance(st, IfM):
+                self.if_(st)
+            elif isinstance(st, RepeatM):
+                self.repeat(st)
+
+    def emit_field(self, op: GOp, flags: list, note: str) -> None:
+        f = op.f
+        order = ["lsb"] if f.order == "lsb" and f.width > 1 else []
+        if op.kind == "SAMPLE":
+            ops = order + [op.dst] + ([f"tag=0x{op.tag:02X}"] if op.tag else [])
+        else:
+            ops = order + [op.src] + ([op.dst] if op.dst != "NONE" else [])
+        entry = getattr(self, "entry_next", "")
+        self.entry_next = ""
+        self.emit(f"FIELD {op.kind} {f.width}, " + ", ".join(ops), note, kind="field", op=op,
+                  entry=entry, uses=((int(op.src[1]),) if op.src[:1] == "R" else ()))
+        older = self.pending
+        self.pending = []
+        for _, emit in older:
+            emit()
+
+    def field(self, f: FieldM) -> None:
+        ir = self.ir
+        if f.owner == ir.role:
+            self.drive(f)
+        else:
+            self.observe(f)
+
+    def drive(self, f: FieldM) -> None:
+        ir, pm = self.ir, self.ir.proto
+        if not f.data:
+            notme, pend = None, []
+            if f.when:
+                notme = self.label("not_" + f.name)
+                self.cond_branch(f.when, notme, negate=True)
+                pend = list(self.pending)           # records still due on the not-driven path
+            self.emit_field(GOp(f, "DRIVE", src=f"IMM {f.value}"), [], f"{f.name} = {f.value_text}")
+            if notme:
+                end_action = f.on_error
+
+                def block(lab=notme, pend=pend):
+                    self.place(lab)
+                    saved, self.pending = self.pending, pend
+                    self.flush()
+                    self.pending = saved
+                    if end_action == "end":                                   # I32
+                        self.emit("WAIT  none", f"`when` false: {f.name} not driven; until the "
+                                  "frame ends", kind="wait_event")
+                    else:
+                        raise Unsupported("`when ... else continue`", f.line, pm.filename)
+                self.out_of_line.append(block)
+            return
+        if id(f) in self.reg:                                    # staged before the frame event
+            src = f"R{self.reg[id(f)]}"
+        elif id(f) in ir.cond_fields:
+            r = self.alloc(f"the value of {f.name}", f.line)
+            self.reg[id(f)] = r
+            self.emit(f"Q     POP R{r}", f"{f.name}: host word" + (f" ({', '.join(f'{k}={v}' for k, v in f.names.items())})" if f.names else ""),
+                      kind="pop")
+            src = f"R{r}"
+        elif ir.clock_owner or ir.stretcher:
+            src = "HOSTQ"                         # waits: the owner pauses, a stretcher holds the clock
+        else:
+            raise Unsupported("a default in this frame shape", f.line, pm.filename)
+        note = f"{f.name} from the host" + (" (the clock is held until it is there)"
+                                           if src == "HOSTQ" and ir.stretcher else "")
+        self.emit_field(GOp(f, "DRIVE", src=src), [], note)
+
+    def observe(self, f: FieldM) -> None:                                         # I33
+        ir, pm = self.ir, self.ir.proto
+        if f.data:
+            need = id(f) in ir.cond_fields
+            tag = TAG_VALUE | f.index
+            if ir.listener:
+                op = GOp(f, "SAMPLE", dst="CAP", tag=tag)
+                self.emit_field(op, [], f"{f.name} -> capture record")
+                if need:
+                    r = self.alloc(f"the value of {f.name}", f.line)
+                    self.reg[id(f)] = r
+                    self.emit(f"MOVSR R{r}", f"{f.name} for a condition", sync=True)
+            elif need:
+                r = self.alloc(f"the value of {f.name}", f.line)
+                self.reg[id(f)] = r
+                op = GOp(f, "SAMPLE", dst=f"R{r}")
+                self.emit_field(op, [], f"{f.name} -> R{r}")
+                self.pending.append((f, lambda r=r, tag=tag, f=f: self.emit(
+                    f"Q     PUSH R{r}, tag=0x{tag:02X}", f"{f.name} record", uses=(r,), rec=f)))
+            else:
+                self.emit_field(GOp(f, "SAMPLE", dst="HOSTQ", tag=tag), [], f"{f.name} -> host")
+            return
+        op = GOp(f, "EXPECT", src=f"IMM {f.value}")
+        self.emit_field(op, [], f"{f.name} = {f.value_text}")
+        ok = self.label("ok_" + f.name)
+        bad = self.label("bad_" + f.name)
+        self.emit(f"BR    NM, {bad}", "no match", target=bad, cond="NM", sync=True)
+        seen = (~f.value) & 1 if f.width == 1 else None
+        etag = TAG_ERROR | f.index
+        pend = list(self.pending)
+
+        def block(lab=bad, pend=pend):
+            self.place(lab)
+            saved, self.pending = self.pending, pend
+            self.flush()
+            self.pending = saved
+            if ir.clock_owner:                                                # I31
+                if f.on_error != "end":
+                    raise Unsupported("`else continue` for the clock owner", f.line, pm.filename)
+                until = pm.events[pm.frame.until[0]]                         # 3.15: first end event
+                self.gen_event(until, from_frame=True)
+                self.error_record(f, seen, etag)
+                self.emit("IRQ", "host interrupt")
+                self.emit("HALT", "the loader restarts the lane (3.15)")
+                return
+            self.error_record(f, seen, etag)
+            if f.on_error == "end":
+                self.emit("WAIT  none", "else end: until the frame ends", kind="wait_event")
+            else:
+                raise Unsupported("`else continue` in this frame shape", f.line, pm.filename)
+        self.out_of_line.append(block)
+
+    def error_record(self, f: FieldM, seen: Optional[int], etag: int) -> None:
+        if self.ir.listener:
+            self.emit("Q     PUSHTS", "error record: timestamp word")
+        if seen is None:
+            raise Unsupported("an error record for a field wider than 1 bit in this frame shape",
+                              f.line, self.ir.proto.filename)
+        self.emit(f"Q     PUSHI {seen}, tag=0x{etag:02X}", f"error {f.name}={seen}", rec=f)
+
+    def cond_reg(self, c: CondM) -> int:
+        if id(c.field) not in self.reg:
+            raise CompileError(f"`{c.text}`: {self.ir.role} does not hold `{c.field.name}`")
+        return self.reg[id(c.field)]
+
+    def cond_branch(self, c: CondM, target: str, negate: bool) -> None:
+        """Branch to `target` when the condition is false (negate) or true."""
+        r = self.cond_reg(c)
+        self.flush(only=c.field)
+        self.emit(f"CMP   R{r}, {c.value}", f"{c.text}", uses=(r,))
+        eq_true = c.op == "=="
+        cond = ("NZ" if eq_true else "Z") if negate else ("Z" if eq_true else "NZ")
+        self.emit(f"BR    {cond}, {target}", target=target, cond=cond)
+
+    def if_(self, st: IfM) -> None:
+        other, done = self.label("else"), self.label("endif")
+        self.cond_branch(st.cond, other, negate=True)
+        pend = list(self.pending)
+        self.body(st.then)
+        self.flush()
+        self.emit(f"BR    always, {done}", target=done, cond="always")
+        self.place(other)
+        self.pending = pend
+        self.body(st.orelse)
+        self.flush()
+        self.place(done)
+
+    def repeat(self, st: RepeatM) -> None:
+        ir, pm = self.ir, self.ir.proto
+        loop, after = self.label("loop"), self.label("after")
+        if st.while_ is None:                       # open: the end-event owner gets a count (3.10)
+            if ir.clock_owner:
+                rc = self.alloc("iteration count", st.line)
+                self.emit(f"Q     POP R{rc}", "iteration count", kind="pop")
+                self.emit(f"CMP   R{rc}, 0", uses=(rc,))
+                self.emit(f"BR    Z, {after}", "no iterations", target=after, cond="Z")
+                self.place(loop)
+                self.body(st.body)
+                self.flush()
+                self.emit(f"LOOP  R{rc}, {loop}", target=loop, cond="loop", uses=(rc,))
+                self.release(rc)
+            else:
+                self.place(loop)
+                self.body(st.body)
+                self.flush()
+                self.emit(f"BR    always, {loop}", "until an end event", target=loop, cond="always")
+        else:
+            self.place(loop)
+            self.body(st.body)
+            r = self.cond_reg(st.while_)
+            self.flush()
+            self.emit(f"CMP   R{r}, {st.while_.value}", f"while {st.while_.text}", uses=(r,))
+            cond = "Z" if st.while_.op == "==" else "NZ"
+            self.emit(f"BR    {cond}, {loop}", target=loop, cond=cond)
+        self.place(after)
+
+
+def schedule_g(lines: list[Line], ir: RoleG) -> list[Check]:
+    """Worst-case schedule for the general clock-wire form (3.16 item 8),
+    with the cost model of schedule(). The clock owner may pause its clock
+    (a gap only lengthens the clock's launch phase, which the description
+    allows), so its own checks are the timing ones of timing_g. A role
+    that follows the clock must have each field ready in time for the edges
+    of the fastest clock the rules allow; a stretcher can hold the clock only
+    while it waits for host data (D11), not while it runs instructions."""
+    t, out = ir.timing, []
+    if ir.clock_owner:                                                       # I30
+        return out
+    m = EDGE_MARGIN
+    cap_phase = t.pulse(t.capture_level)            # capture to the next launch edge
+    launch_phase = t.pulse(t.launch_level)
+    index = _label_index(lines)
+    worst: dict[str, Check] = {}
+
+    def add(name, need, avail):
+        c = Check(name, need, int(math.floor(avail)))
+        if name not in worst or c.avail - c.need < worst[name].avail - worst[name].need:
+            worst[name] = c
+
+    edge = lambda ln: ln.kind in ("wait_event",)                             # noqa: E731
+    for i, ln in enumerate(lines):
+        if ln.kind != "field":
+            continue
+        F: GOp = ln.op
+        for j, path in _next_fields(lines, index, i):
+            G: GOp = lines[j].op
+            dep = any(p.sync or (F.dst_reg is not None and F.dst_reg in p.uses) for p in path)
+            k = len(path)
+            first = launch_phase + cap_phase if G.kind != "DRIVE" else cap_phase
+            if dep:
+                need = (F.deliveries + k + 2) * SLOT + 2
+                add(f"{F.f.name} -> {G.f.name} ({'drive' if G.kind == 'DRIVE' else 'sample'})",
+                    need, first - m)
+            else:
+                need = (F.deliveries + k + 2) * SLOT + 2
+                add(f"{F.f.name} -> {G.f.name} (run ahead)", need,
+                    F.f.width * (launch_phase + cap_phase) + first - m)
+    # after the frame start event: K confirm cycles, then the handler
+    fr = ir.proto.frame
+    hold = max([c for a, b, c, _ in t.intervals if a == ("event", fr.after)], default=t.nominal / 2)
+    for i, ln in enumerate(lines):
+        if ln.entry == "start" or (ln.label == fr.after):
+            k0 = _walk_count(lines, i, lambda x: x.kind == "field")
+            j = next(j for j in range(i, len(lines)) if lines[j].kind == "field")
+            G = lines[j].op
+            avail = hold + (launch_phase if G.kind != "DRIVE" else 0)
+            add(f"{fr.after} -> first field ready", t.k + _handler_instr(k0) + D_TO_START,
+                avail + IN_LAT - m)
+            break
+    return list(worst.values())
+
+
+def _next_fields(lines: list[Line], index: dict, i: int):
+    """(j, lines between) for every field line j reachable from field line i
+    without passing another field or a WAIT."""
+    out = []
+
+    def go(k: int, path: list, seen: frozenset) -> None:
+        while k < len(lines) and k not in seen:
+            ln = lines[k]
+            if ln.kind == "field":
+                out.append((k, path))
+                return
+            if ln.kind == "wait_event" or ln.text.startswith(("HALT", "IRQ")):
+                return
+            seen = seen | {k}
+            path = path + [ln]
+            if ln.target is not None:
+                tgt = index[ln.target]
+                if ln.cond == "always":
+                    k = tgt
+                    continue
+                go(tgt, path, seen)
+            k += 1
+
+    go(i + 1, [], frozenset())
+    return out
+
+
+def _compile_g(f: lang.File, pm: ProtocolM, role: str, clock_hz: int, origin: int,
+               params: dict, listen_wire: Optional[str]) -> "Compiled":
+    ir = project_g(pm, role, clock_hz, listen_wire)
+    gen = _GenG(ir)
+    lines = gen.run()
+    if ir.listener and any(ln.kind == "pin" or ln.text.startswith("FIELD DRIVE") for ln in lines):
+        raise AssertionError("a listener program must never enable an output (arch obligation 8)")
+    checks = schedule_g(lines, ir)
+    bad = [c for c in checks if not c.ok]
+    if bad:
+        raise CompileError(
+            f"{role}: the schedule does not fit (3.16 item 8): "
+            + "; ".join(f"{c.name} needs {c.need} cycles, has {c.avail}" for c in bad),
+            pm.clock.line, pm.filename)
+    text = render(lines)
+    prog = asm.assemble(text, origin=origin)
+    _check_rulings(prog.words, ir.timing.pulse(0))
+    regs = _mode_regs(prog.words)
+    man = _manifest_g(f, params, ir, prog.words, origin, regs, checks, lines)
+    return Compiled(pm.name, role, {k: fmt_value(v) for k, v in pm.params.items()}, text, origin,
+                    prog.words, prog.listing, regs, man, ir, lines, checks)     # type: ignore[arg-type]
+
+
+def fastest_rate_g(f: lang.File, params: dict, role: str, clock_hz: int) -> Optional[float]:
+    """Highest clock rate at which this role still compiles (the rules
+    re-evaluated at each rate: they may depend on it, as I2C's do)."""
+    stdlib = lang.parse_file(STDLIB)
+    pm0 = elaborate(f, params, stdlib)
+    rp = pm0.clock.rate_param
+    if rp is None:
+        return None
+    clk = Fraction(clock_hz)
+
+    def ok(r: Fraction) -> bool:
+        try:
+            pm = elaborate(f, {**params, rp: f"{r.numerator} Hz / {r.denominator}"}, stdlib)
+            ir = project_g(pm, role, clock_hz, None)
+            lines = _GenG(ir).run()
+            if not all(c.ok for c in schedule_g(lines, ir)):
+                return False
+            if not ir.clock_owner:                  # a follower keeps up with what the rules allow
+                return r <= clk / math.ceil(ir.timing.period_min)
+            return True
+        except CompileError:
+            return False
+
+    lo, hi = Fraction(1000), clk / 8
+    if not ok(lo):
+        return None
+    if ok(hi):
+        return float(hi)
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if ok(mid) else (lo, mid)
+    return float(lo)
+
+
+def _manifest_g(f: lang.File, params: dict, ir: RoleG, words: list[int], origin: int,
+                regs: dict[str, int], checks: list[Check], lines: list[Line]) -> dict:
+    pm, t = ir.proto, ir.timing
+    fr, clock = pm.frame, pm.clock
+    tags: dict[str, dict] = {}
+    for ln in lines:
+        op = ln.op
+        if isinstance(op, GOp) and op.tag:
+            d = {"kind": "value", "field": op.f.name, "width": op.f.width}
+            if op.f.names:
+                d["names"] = op.f.names
+            tags[f"0x{op.tag:02X}"] = d
+        if ln.text.startswith("Q     PUSH R") and "tag=" in ln.text:
+            tag = int(ln.text.split("tag=")[1], 16)
+            fld = ln.rec
+            d = {"kind": "value", "field": fld.name, "width": fld.width}
+            if fld.names:
+                d["names"] = fld.names
+            tags[f"0x{tag:02X}"] = d
+        if ln.text.startswith("Q     PUSHI") and "tag=" in ln.text:
+            tag = int(ln.text.split("tag=")[1], 16)
+            if tag & TAG_ERROR:
+                fld = ln.rec
+                tags[f"0x{tag:02X}"] = {"kind": "error", "field": fld.name, "width": fld.width,
+                                        "expected": fld.value_text}
+            else:
+                ev = next(e for e in pm.events.values() if e.index == tag)
+                tags[f"0x{tag:02X}"] = {"kind": "event", "event": ev.name, "value": 0}
+    pins = {w: {"direction": "out", "lane_signal": f"out{k}",
+                "open_drain": pm.wires[w].open_drain} for w, k in ir.outputs.items()}
+    for w, k in ir.inputs.items():
+        pins.setdefault(w, {})
+        pins[w]["input"] = f"in{k}"
+    rules = {}
+    for r in pm.rules:
+        cyc = r.limit.v * (Fraction(ir.clock_hz) if r.limit.dim == "time" else t.nominal)
+        rules[r.name] = {"bound": r.text, "responsible": r.responsible,
+                         "bound_cycles": round(float(cyc), 2)}
+    tm: dict[str, object] = {
+        "tick": "BAUD" if ir.clock_owner else "EDGE", "clock": clock.wire,
+        "capture": clock.capture_text, "rate_hz_described": float(t.rate),
+        "confirm_window_cycles": t.k if not ir.clock_owner else None, "rules": rules,
+        "fastest_rate_hz": (round(x) if (x := fastest_rate_g(f, params, ir.role, ir.clock_hz))
+                            else None),
+    }
+    if ir.clock_owner:
+        rt = IN_LAT + OUT_LAT if t.honour else 0
+        hc = t.period * t.prescale
+        tm.update({"prescale": t.prescale, "PERIOD": t.period, "PERIOD2": t.period2,
+                   "low_cycles": hc, "high_cycles": t.period2 * t.prescale + rt,
+                   "clock_cycles": hc + t.period2 * t.prescale + rt,
+                   "rate_hz": round(ir.clock_hz / (hc + t.period2 * t.prescale + rt), 1),
+                   "honours_stretching": t.honour, "launch_delay": t.delay,
+                   "note": "the clock pauses (launch level) wherever the program waits: host "
+                           "words, and after each checked field, whose branch waits for the end "
+                           "of the bit (I30)"})
+    elif ir.stretcher:
+        tm["PERIOD"] = t.period
+    in_q = []
+    if ir.clock_owner or any(x.owner == ir.role and x.data for x in _walk_body(fr.body)):
+        in_q = _host_words(ir, fr.body, top=True)
+    man: dict[str, object] = {
+        "format": "rosetta-manifest-0", "protocol": pm.name, "role": ir.role,
+        "params": {k: fmt_value(v) for k, v in pm.params.items()},
+        "clock_hz": ir.clock_hz,
+        "program": {"origin": origin, "words": len(words), "entry": origin},
+        "pins": pins, "mode_registers": {k: f"0x{v:04X}" for k, v in regs.items()},
+        "timing": tm,
+        "frame": {"name": fr.name, "after": fr.after, "until": list(fr.until)},
+        "in_queue": in_q, "out_queue": None,
+        "on_error": ("generates " + fr.until[0] + ", records the error, raises the interrupt "
+                     "and halts (3.15)" if ir.clock_owner else
+                     "records the error and waits for the frame to end; never halts"),
+        "schedule": [{"check": c.name, "need_cycles": c.need, "available_cycles": c.avail}
+                     for c in checks],
+    }
+    if ir.listener:
+        late = {}
+        for i, ln in enumerate(lines):
+            if ln.mark.startswith("ts:"):
+                k = i - next(j for j in range(i, -1, -1) if lines[j].entry)
+                late[ln.mark[3:]] = [t.k + _handler_instr(k) - (SLOT - 1), t.k + _handler_instr(k)]
+        man["out_queue"] = {
+            "words_per_record": 2,
+            "layout": "timestamp word (32-bit cycle counter), then {tag[31:24], value[23:0]}",
+            "timestamps": {"value": f"cycle the lane saw the field's last capture edge ({IN_LAT} "
+                                    "cycles after the pin edge)",
+                           "event": "cycle of a Q PUSHTS in the handler, after the confirm window",
+                           "event_late_cycles_after_pin_edge": late,
+                           "error": "cycle of a Q PUSHTS after the comparison"},
+            "tags": tags}
+    elif tags:
+        man["out_queue"] = {"words_per_record": 1, "layout": "{tag[31:24], value[23:0]}", "tags": tags}
+    return man
+
+
+def _host_words(ir: RoleG, body: list, top: bool = False) -> list:
+    """The in-queue words of the clock owner (or a field owner), in order (3.15)."""
+    out: list = []
+    for st in body:
+        if isinstance(st, FieldM):
+            if st.owner == ir.role and st.data:
+                d = {"field": st.name, "width": st.width}
+                if st.names:
+                    d["names"] = st.names
+                out.append(d)
+        elif isinstance(st, IfM):
+            then, orelse = _host_words(ir, st.then), _host_words(ir, st.orelse)
+            if then or orelse:
+                out.append({"if": st.cond.text, "then": then, "else": orelse})
+        elif isinstance(st, RepeatM):
+            inner = _host_words(ir, st.body)
+            if not inner:
+                continue
+            item = {"repeat": inner}
+            if st.while_ is None and ir.clock_owner:
+                item["count_first"] = "iteration count, before the first iteration"
+            else:
+                item["while"] = st.while_.text if st.while_ else "until an end event"
+            out.append(item)
+    if top and ir.clock_owner and len(ir.proto.frame.until) > 1:
+        out.append({"frame_end": {u: i for i, u in enumerate(ir.proto.frame.until)}})
+    return out
 
 
 # ============================================================== stage 7: output
@@ -2248,6 +3347,8 @@ def compile_protocol(f: lang.File, role: str, params: Optional[dict[str, str]] =
     stdlib = lang.parse_file(STDLIB)
     pm = elaborate(f, params, stdlib)
     if isinstance(pm.clock, WireClockM):
+        if _general_shape(pm):
+            return _compile_g(f, pm, role, clock_hz, origin, dict(params or {}), listen_wire)
         return _compile_b(pm, role, clock_hz, origin, listen_wire)
     if listen_wire is not None:
         raise CompileError("listen_wire applies to a listener of a clock-wire protocol")

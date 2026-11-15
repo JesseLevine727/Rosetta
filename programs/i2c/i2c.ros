@@ -1,0 +1,42 @@
+// I2C, 7-bit addresses, standard mode (100 kHz) or fast mode.
+protocol i2c {
+  param scl_rate = 100 kHz
+  param address  : 0..127 = 0x50          // the target's own address
+
+  parties controller, target
+
+  wire scl open_drain
+  wire sda open_drain
+
+  clock scl by controller rate scl_rate capture rising stretch by target
+
+  event start = sda falls while scl high by controller
+  event stop  = sda rises while scl high by controller
+
+  frame transfer after start until stop or start {
+    controller addr[7] msb
+    controller rw[1] (write = 0, read = 1)
+    target     ack[1] = 0 when addr == address else end
+    if rw == write {
+      repeat {
+        controller data[8] msb
+        target     ack[1] = 0 else end
+      }
+    } else {
+      repeat {
+        target     data[8] msb
+        controller ack[1] (more = 0, last = 1)
+      } while ack == more
+    }
+  }
+
+  // UM10204 table 10. The first value applies above 100 kHz (fast mode).
+  rule t_low    : low scl  >= (scl_rate > 100 kHz ? 1.3 us : 4.7 us)
+  rule t_high   : high scl >= (scl_rate > 100 kHz ? 0.6 us : 4.0 us)
+  rule t_su_dat : sda setup to scl rises >= (scl_rate > 100 kHz ? 100 ns : 250 ns)
+  rule t_hd_dat : sda hold from scl falls >= 0 ns
+  rule t_su_sta : scl rises to start >= (scl_rate > 100 kHz ? 0.6 us : 4.7 us)
+  rule t_hd_sta : start to scl falls >= (scl_rate > 100 kHz ? 0.6 us : 4.0 us)
+  rule t_su_sto : scl rises to stop  >= (scl_rate > 100 kHz ? 0.6 us : 4.0 us)
+  rule t_buf    : stop to start      >= (scl_rate > 100 kHz ? 1.3 us : 4.7 us)
+}

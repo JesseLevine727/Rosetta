@@ -72,21 +72,34 @@ def main(argv: list[str] | None = None) -> int:
               + (f" PERIOD2 {t['PERIOD2']}" if "PERIOD2" in t else "")
               + f", bit {t['bit_cycles']:g} cycles for a nominal {t['nominal_bit_cycles']} "
                 f"({t['rate_error_percent']:+g} %, tolerance {t['tolerance_percent']:g} %)")
-    else:                                       # clock-wire form
+    elif "pin_waits_periods" in t or "fastest_rate_hz_schedule" in t:     # clock wire, SPI shape
         own = (f" PERIOD {t['PERIOD']} PERIOD2 {t['PERIOD2']}, clock {t['clock_cycles']} cycles "
                f"= {t['rate_hz']:g} Hz, PIN waits {t['pin_waits_periods']}" if "PERIOD" in t else "")
         print(f"; timing: {t['tick']} on {t['clock']}, capture {t['capture']}{own}; "
               f"schedule fits up to {t['fastest_rate_hz_schedule']} Hz")
+    else:                                       # clock wire, general shape
+        own = (f" PERIOD {t['PERIOD']} PERIOD2 {t['PERIOD2']}: low {t['low_cycles']}, high "
+               f"{t['high_cycles']} cycles = {t['rate_hz']:g} Hz" if "PERIOD2" in t else
+               f" PERIOD {t['PERIOD']}" if "PERIOD" in t else "")
+        k = f", confirm window {t['confirm_window_cycles']}" if t.get("confirm_window_cycles") else ""
+        print(f"; timing: {t['tick']} on {t['clock']}, capture {t['capture']}{own}{k}; "
+              f"fastest rate {t['fastest_rate_hz']} Hz")
     for w in m["in_queue"]:
-        what = w.get("field") or w.get("item")
-        print(f"; in-queue word: {what}" + (f" ({w['width']} bits)" if "width" in w else "")
-              + (f", default {w['default']}" if "default" in w else ""))
+        if "field" in w or "item" in w:
+            what = w.get("field") or w.get("item")
+            print(f"; in-queue word: {what}" + (f" ({w['width']} bits)" if "width" in w else "")
+                  + (f", default {w['default']}" if "default" in w else ""))
+        else:
+            print(f"; in-queue: {json.dumps(w)}")
     if m["out_queue"]:
         oq = m["out_queue"]
         print(f"; out-queue: {oq['words_per_record']} word(s) per record, {oq['layout']}")
         for tag, d in oq["tags"].items():
             if d["kind"] == "event":
                 print(f";   tag {tag}: event {d['event']}")
+                continue
+            if d.get("names"):
+                print(f";   tag {tag}: {d['kind']} {d['field']}[{d['width']}] {d['names']}")
                 continue
             extra = f" = {d['expected']}, then {d['then']}" if d["kind"] == "error" else ""
             print(f";   tag {tag}: {d['kind']} {d['field']}[{d['width']}]{extra}")

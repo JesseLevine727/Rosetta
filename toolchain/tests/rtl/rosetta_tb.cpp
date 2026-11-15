@@ -4,20 +4,25 @@
 // It plays the demo board: clocks the chip, holds reset, bit-bangs the host
 // SPI port on ui[0..2] (mode 0, SCLK half period 8 cycles = f_clk/16, the
 // host.md 2.1 limit) and wires chip outputs back to chip inputs like the
-// FPGA harness loopback (here with no extra register). Nothing here knows
-// about lanes, programs or protocols.
+// FPGA harness loopback (here with no extra register), and can join
+// bidirectional pins into open-drain nets: a pin pulls its net low when its
+// uio_oe is 1 and uio_out is 0, a net nobody pulls reads 1 (pull-up), and
+// every pin of a net reads the net. Nothing here knows about lanes,
+// programs or protocols.
 //
 // Commands (one per line; every command answers one line):
 //   R n          run n cycles                                  -> "ok"
 //   W a d        host register write (a, d hex)                -> "ok"
 //   X a          host register read                            -> "<hex>"
 //   L f t        wire uo[f] -> ui[t] (both 0..7)               -> "ok"
+//   N mask       join the uio pins in mask (hex) into one open-drain net  -> "ok"
+//   S pin d      uio pin `pin` reads its net d cycles late (synchroniser skew) -> "ok"
 //   F off len    one-shot fault: at the next falling edge of the first
 //                wire's source, invert every wire during
 //                [edge + off, edge + off + len)                 -> "ok"
 //   C            current cycle                                 -> "<dec>"
-//   D            dump pin changes since the last D: lines "cycle uo ui",
-//                then "end"
+//   D            dump pin changes since the last D: lines
+//                "cycle uo ui uio_out uio_oe uio_in" (hex), then "end"
 //   Q            quit
 //
 // Cycle n is the n-th rising edge. "uo in cycle n" is uo_out after edge n;
@@ -41,9 +46,27 @@ static bool fault_armed = false, fault_seen = false;
 static uint64_t fault_lo = 0, fault_hi = 0, fault_off = 0, fault_len = 0;
 static int fault_prev = 1;
 
-struct Change { uint64_t c; uint8_t uo, ui; };
+static std::vector<uint8_t> nets;    // uio pin masks, wired-AND with pull-up
+static int skew[8];                  // per uio pin input delay, cycles (< 64)
+static uint8_t hist[64];             // resolved uio_in of the last 64 cycles
+
+struct Change { uint64_t c; uint8_t uo, ui, uout, uoe, uin; };
 static std::vector<Change> trace;
-static int last_uo = -1, last_ui = -1;
+static int last_uo = -1, last_ui = -1, last_uout = -1, last_uoe = -1, last_uin = -1;
+
+static uint8_t resolve_nets() {
+  uint8_t uin = 0xFF;                    // unconnected pins read 1, as before
+  uint8_t pull = top->uio_oe & ~top->uio_out;
+  for (uint8_t m : nets)
+    if (pull & m) uin &= (uint8_t)~m;
+  hist[cyc % 64] = uin;
+  for (int k = 0; k < 8; k++)
+    if (skew[k] && cyc >= (uint64_t)skew[k]) {
+      uint8_t old = hist[(cyc - skew[k]) % 64];
+      uin = (uint8_t)((uin & ~(1u << k)) | (old & (1u << k)));
+    }
+  return uin;
+}
 
 static uint8_t apply_wires() {
   uint8_t u = host_ui & 0x07;
@@ -68,11 +91,17 @@ static void tick() {
     fault_prev = src;
   }
   uint8_t ui = apply_wires();
+  uint8_t uin = resolve_nets();
   top->ui_in = ui;
-  if (top->uo_out != last_uo || ui != last_ui) {
-    trace.push_back({cyc, top->uo_out, ui});
+  top->uio_in = uin;
+  if (top->uo_out != last_uo || ui != last_ui || top->uio_out != last_uout ||
+      top->uio_oe != last_uoe || uin != last_uin) {
+    trace.push_back({cyc, top->uo_out, ui, top->uio_out, top->uio_oe, uin});
     last_uo = top->uo_out;
     last_ui = ui;
+    last_uout = top->uio_out;
+    last_uoe = top->uio_oe;
+    last_uin = uin;
   }
   top->clk = 0;
   top->eval();
@@ -143,6 +172,16 @@ int main(int argc, char **argv) {
       sscanf(line + 1, "%d %d", &f, &t);
       wires.push_back({f, t});
       printf("ok\n");
+    } else if (cmd == 'N') {
+      unsigned m = 0;
+      sscanf(line + 1, "%x", &m);
+      nets.push_back((uint8_t)m);
+      printf("ok\n");
+    } else if (cmd == 'S') {
+      int k = 0, d = 0;
+      sscanf(line + 1, "%d %d", &k, &d);
+      if (k >= 0 && k < 8 && d >= 0 && d < 64) skew[k] = d;
+      printf("ok\n");
     } else if (cmd == 'F') {
       unsigned long long off = 0, len = 0;
       sscanf(line + 1, "%llu %llu", &off, &len);
@@ -156,7 +195,8 @@ int main(int argc, char **argv) {
       printf("%llu\n", (unsigned long long)cyc);
     } else if (cmd == 'D') {
       for (const Change &c : trace)
-        printf("%llu %02x %02x\n", (unsigned long long)c.c, c.uo, c.ui);
+        printf("%llu %02x %02x %02x %02x %02x\n", (unsigned long long)c.c, c.uo, c.ui, c.uout,
+               c.uoe, c.uin);
       trace.clear();
       printf("end\n");
     } else {

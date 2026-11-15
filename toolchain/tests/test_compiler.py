@@ -20,6 +20,7 @@ from rosetta.compiler import CompileError, Unsupported, _check_rulings, compile_
 
 UART = os.path.join(support.TOOLCHAIN, "..", "programs", "uart", "uart.ros")
 SPI = os.path.join(support.TOOLCHAIN, "..", "programs", "spi", "spi.ros")
+I2C = os.path.join(support.TOOLCHAIN, "..", "programs", "i2c", "i2c.ros")
 
 
 def hand_words(name: str) -> list[int]:
@@ -179,25 +180,52 @@ def spi_text() -> str:
         return f.read()
 
 
+class I2c(unittest.TestCase):
+    """I2C (language.md 2.3). The RTL runs are in test_i2c_rtl.py."""
+
+    def test_timing_from_the_rules(self):
+        c = compile_file(I2C, "controller", {"scl_rate": "400 kHz"})
+        t = compile_file(I2C, "target", {"scl_rate": "400 kHz"})
+        # t_low 1.3 us = 78 cycles; t_high 0.6 us: 150 - 78 - 4 (capture waits for scl high)
+        self.assertEqual((c.mode_regs["PERIOD"], c.mode_regs["PERIOD2"]), (78, 68))
+        self.assertEqual(t.mode_regs["PERIOD"], 6)              # t_su_dat 100 ns before release
+        self.assertEqual(isa.mode_decode("EVC0", t.mode_regs["EVC0"])["k"], 18)   # 300 ns window
+        tick = isa.mode_decode("TICK", t.mode_regs["TICK"])
+        self.assertTrue(tick["stretch_hold"] and tick["clock_od"])
+        self.assertEqual(c.manifest["timing"]["fastest_rate_hz"], 526316)
+        with self.assertRaisesRegex(CompileError, "Fastest rate: 526316 Hz"):
+            compile_file(I2C, "controller", {"scl_rate": "527 kHz"})
+
+    def test_host_view(self):
+        c = compile_file(I2C, "controller")
+        self.assertEqual(c.manifest["in_queue"][-1], {"frame_end": {"stop": 0, "start": 1}})
+        tags = compile_file(I2C, "listener").manifest["out_queue"]["tags"]
+        self.assertEqual(tags["0x03"], {"kind": "value", "field": "ack", "width": 1,
+                                        "names": {"more": 0, "last": 1}})
+        self.assertEqual(tags["0x43"]["kind"], "error")
+
+
 class Unsupported_(unittest.TestCase):
 
     def test_named(self):
-        for fixture, construct in (("i2c.ros", "wire ... open_drain"),
-                                   ("ws2812.ros", "clock symbols")):
+        for fixture, construct in (("ws2812.ros", "clock symbols"),):
             with self.subTest(fixture):
                 with self.assertRaises(Unsupported) as cm:
                     compile_file(os.path.join(support.FIXTURES, fixture), "controller")
                 self.assertEqual(cm.exception.construct, construct)
         for old, new, construct in (
                 ("    repeat {", "    repeat 4 {", "repeat N (counted)"),
-                ("capture (cpha == 0 ? leading : trailing)", "capture leading stretch by target",
-                 "clock ... stretch by PARTY"),
-                ("rule miso_su : miso setup to capture", "rule miso_su : miso hold from capture",
-                 "rule W hold from EDGE")):
+                ("event select   = cs_n falls by controller",
+                 "event select   = cs_n low for 1 us by controller", "event = W high|low for D"),
+                ("rule cs_lead : select to sck changes >= 0.5 bit",
+                 "rule cs_lead : select to sck changes <= 0.5 bit", "rule ... <= (only `>=` bounds)")):
             with self.subTest(construct):
                 with self.assertRaises(Unsupported) as cm:
                     compile_text(spi_text().replace(old, new), "controller")
                 self.assertEqual(cm.exception.construct, construct)
+        with self.assertRaisesRegex(CompileError, r"`stretch by` needs an open-drain clock wire"):
+            compile_text(spi_text().replace("capture (cpha == 0 ? leading : trailing)",
+                                            "capture leading stretch by target"), "controller")
 
     def test_bad_role_and_parameter(self):
         with self.assertRaisesRegex(CompileError, "not a role"):

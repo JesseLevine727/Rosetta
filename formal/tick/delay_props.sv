@@ -6,6 +6,13 @@
 //  items), lane.md 6.5 and 12.2 R9 ONLY. The RTL was not read. Every
 //  property is about the ports.
 //
+//  Amended 15 Nov for ruling 58 (tick.md 9.2 rule 4, amended text only; the
+//  new RTL was not read): a delayed request arriving in the cycle a PIN
+//  writes an output that request would write is DROPPED (never pending,
+//  never output); rules 2 and 3 are unchanged and a dropped request still
+//  counts as "a new delayed request in t" for rule 3 (it flushes a pending
+//  change the PIN does not cancel). Model, tracker, a_drop_* and c_drop_*.
+//
 //  Contents
 //   * Executable model of 9.2 (pv, pclk, ppay, pcap, pcnt), compared with
 //     every output in every cycle (a_m_*). d_pay_o / c_pay_o are compared
@@ -55,6 +62,10 @@ module delay_props #(
     wire d_und = dreq_i && !d_del;                               // passes through
     wire c_und = creq_i && !c_del;
     wire newd  = d_del || c_del;
+    // 9.2 rule 4 (ruling 58): the new delayed request is dropped when a PIN
+    // in its cycle writes an output it would write; w1_new = dpay_i[2]
+    wire drop  = newd && pin_we_i && (c_del ? pin_mask_i[3] :
+                                      (pin_mask_i[0] || (pin_mask_i[1] && dpay_i[2])));
 
     // ---------------------------------------------------------------------
     // Executable model
@@ -83,7 +94,7 @@ module delay_props #(
             pv <= 1'b0; pclk <= 1'b0; pcap <= 1'b0; ppay <= 5'd0; pcnt <= 8'd0;
         end else if (!run_i) begin
             pv <= 1'b0; pclk <= 1'b0; pcap <= 1'b0; ppay <= 5'd0; pcnt <= 8'd0;
-        end else if (newd && !abort_i && !wr_tick_i) begin
+        end else if (newd && !drop && !abort_i && !wr_tick_i) begin
             pv <= 1'b1; pclk <= cfg_dlyclk_i; pcap <= creq_cap_i;
             ppay <= c_del ? {3'd0, cpay_i} : dpay_i;
             pcnt <= 8'd0;
@@ -169,10 +180,10 @@ module delay_props #(
             tp <= 1'b0; tc <= 1'b0; tcap <= 1'b0; tpay <= 5'd0; tk <= 8'd0;
         end else if (!run_i) begin
             tp <= 1'b0;
-        end else if (newd && !abort_i && !wr_tick_i) begin
+        end else if (newd && !drop && !abort_i && !wr_tick_i) begin
             tp <= 1'b1; tc <= c_del; tcap <= creq_cap_i;
             tpay <= c_del ? {3'd0, cpay_i} : dpay_i; tk <= 8'd0;
-        end else if (tp && (t_can || t_due)) begin
+        end else if (tp && (t_can || t_due || newd)) begin   // newd here: a dropped request flushes
             tp <= 1'b0;
         end else if (tp) begin
             tk <= (tinc > 9'd255) ? 8'd255 : tinc[7:0];
@@ -237,6 +248,20 @@ module delay_props #(
         end
     end
 
+    // ruling 58 (9.2 rule 4): a dropped request is never pending, so in the
+    // cycle after a drop only undelayed requests pass; in the drop cycle a
+    // pending change the PIN does not cancel is still output (rule 3 flush)
+    always @(posedge clk) begin
+        if (!$initstate && rst_n && run_i && $past(rst_n && run_i && drop && !abort_i && !wr_tick_i)) begin
+            a_drop_gone: assert (d_we_o == d_und && c_we_o == c_und && !dcap_o);
+        end
+    end
+    always @* begin
+        if (rst_n && run_i && drop && tp && !t_can) begin
+            a_drop_flush: assert (t_we);
+        end
+    end
+
     // PIN cancels a pending change only if it writes an output that change
     // writes (lane.md I22, 12.2 R9): a non-hitting PIN leaves it pending
     always @(posedge clk) begin
@@ -275,6 +300,19 @@ module delay_props #(
                     c_pin_c:   cover (tp &&  tc && pin_we_i && pin_mask_i == 4'b1000);
                     c_pin_keep: cover ($past(tp && !tc && pin_we_i && pin_mask_i == 4'b0110 && !tpay[2] && !t_due) &&
                                        t_we);
+                    // ruling 58 drops: a clock request by a PIN on out3; a
+                    // data request by a PIN on out0; a data request with w1
+                    // by a PIN on out1 only; no drop for a data request
+                    // without w1 and a PIN on out1 only; a drop that flushes
+                    // a pending change the PIN does not cancel; a drop
+                    // together with the PIN's cancel of the pending change
+                    c_drop_c:   cover (c_del && pin_we_i && pin_mask_i == 4'b1000 && !abort_i && !wr_tick_i);
+                    c_drop_d0:  cover (d_del && pin_we_i && pin_mask_i == 4'b0001 && !abort_i && !wr_tick_i);
+                    c_drop_d1:  cover (d_del && dpay_i[2] && pin_we_i && pin_mask_i == 4'b0010 && !abort_i && !wr_tick_i);
+                    c_nodrop_d1: cover ($past(d_del && !dpay_i[2] && pin_we_i && pin_mask_i == 4'b0010 &&
+                                              !abort_i && !wr_tick_i && run_i) && tp);
+                    c_drop_flush: cover (drop && tp && !t_can && t_we);
+                    c_drop_cancel: cover (drop && tp && t_pin && !abort_i && !wr_tick_i);
                     // cancel by an undelayed request of the same stream
                     c_und_can: cover (tp && t_und && !pin_we_i && !abort_i && !wr_tick_i);
                     // an undelayed request and the other stream's output together

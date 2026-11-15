@@ -1,26 +1,20 @@
 # ============================================================================
-#  Follow-up job (report finding 7): does a stale delayed change land after
-#  a PIN? Separate from lane.sby, whose seven tasks are unchanged. Run from
+#  Rulings 57/58: no stale delayed change lands after a PIN. Separate from
+#  lane.sby (its seven tasks do not see these properties). Run from
 #  formal/lane/:
-#      sby -f -d ref/build/haz_bmc   lane_haz.sby haz_bmc
 #      sby -f -d ref/build/haz_prove lane_haz.sby haz_prove
 #
-#  Properties: lane_props.sv, block "hazard" (define LANE_HAZARD), names h_*.
-#  Every other assertion of the checker is removed here (chformal -remove);
-#  the environment (u_*) is the same as in lane.sby.
+#  Properties: lane_props.sv, block "hazard" (define LANE_HAZARD), names h_*:
+#  h_pend<j> / h_keep<j> for out0..out3 (after a PIN writes out<j>, no
+#  delayed change requested at or before its cycle is pending or lands), and
+#  h_abort*, h_halt*, h_wrtick (no delayed change survives an abort, a halt
+#  or a SETM TICK). Every other assertion of the checker is removed here
+#  (chformal -remove); the environment (u_*) is the same as in lane.sby.
 #
-#  haz_bmc    smtbmc bitwuzla, depth 24: all h_* (out3 included). Expected to
-#             FAIL with the shortest trace (the out3 case of finding 7).
-#             Depth 24: the coincidence cover c_haz_pin_dlyclk is reached at
-#             step 8 in lane.sby cover; the stale change then lands within
-#             the launch delay D <= 255 after it, and bmc finds the shortest
-#             D. It is a search for a counterexample, not a claim.
-#  haz_keep3  smtbmc bitwuzla, depth 24: h_keep3 alone (the observable
-#             form), for the shortest trace in which the stale change lands.
-#  haz_prove  abc pdr, unbounded: h_* without the out3 statements
-#             (LANE_HAZ_NO_OUT3): PIN on out0..out2 against a pending
-#             delayed DATA change, and abort / halt / SETM TICK against any
-#             pending change.
+#  haz_prove  abc pdr, unbounded, all h_* including out3. Before ruling 58
+#             h_pend3 / h_keep3 failed (10-cycle trace, ruling 57); the
+#             failing-trace tasks haz_bmc / haz_keep3 were removed with the
+#             fix (they only searched for that trace).
 # ============================================================================
 [files]
 rosetta_lane.sv ../../src/rosetta_lane.sv
@@ -41,25 +35,16 @@ lane_props.sv
 lane_fv.sv
 
 [tasks]
-haz_bmc
-haz_keep3
 haz_prove
 
 [options]
-haz_bmc: mode bmc
-haz_bmc: depth 24
-haz_keep3: mode bmc
-haz_keep3: depth 24
 haz_prove: mode prove
 
 [engines]
-haz_bmc: smtbmc bitwuzla
-haz_keep3: smtbmc bitwuzla
 haz_prove: abc pdr
 
 [script]
 read -define LANE_HAZARD
-haz_prove: read -define LANE_HAZ_NO_OUT3
 read -formal rosetta_cfg.sv
 read -formal rosetta_tick.sv
 read -formal rosetta_delay.sv
@@ -78,6 +63,4 @@ flatten
 cd lane_fv
 script lane_wb_dut.ys
 cd ..
-haz_bmc: chformal -assert -remove lane_fv/t:$check lane_fv/c:u_chk.h_* %d
-haz_prove: chformal -assert -remove lane_fv/t:$check lane_fv/c:u_chk.h_* %d
-haz_keep3: chformal -assert -remove lane_fv/t:$check lane_fv/c:u_chk.h_keep3 %d
+chformal -assert -remove lane_fv/t:$check lane_fv/c:u_chk.h_* %d

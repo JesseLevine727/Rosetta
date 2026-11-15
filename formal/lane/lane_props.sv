@@ -770,6 +770,16 @@ module lane_props #(
                                      w_dly_pv && w_dly_pclk && w_dly_pcap);
             if (baudt && !T[11] && !dmode)
                 a_e_rtrip: assert (w_tick_st_o == (rt4 && G));
+            // ---- ruling 58 (tick.md 9.2 rule 4 amended): the delay unit drops
+            //      a delayed request made in the cycle a PIN writes its output.
+            //      A dropped capture-level request would leave its BAUD sample
+            //      waiting for a reference edge that never comes (ruling 42),
+            //      so: no capture request is ever dropped, and in fact no
+            //      capture request is made in a PIN's effect cycle at all.
+            a_e_r58_nocap: assert (!(w_dly_pin_we_i && w_dly_pin_mask_i[3] && w_dly_creq_i &&
+                                     w_dly_creq_dly_i && w_dly_creq_cap_i && w_dly_cfg_dlyclk_i &&
+                                     w_dly_cfg_dly_i != 8'd0));
+            a_e_r58_capfree: assert (!(w_field_pin_we_o && w_tick_creq_o && w_tick_creq_cap_o));
             // ---- tick env_pulse (tick_props): PULSE, receiving field current
             if (T[1:0] == PULSE)
                 a_e_t_pulse: assert ((!w_field_launch_req_o || w_field_cu_tx_o) &&
@@ -925,7 +935,7 @@ module lane_props #(
 
 `ifdef LANE_HAZARD
         // ------------------------------------------------------------ hazard
-        // Follow-up on report finding 7 (pins.md 3: "a PIN ... cancels a
+        // Report finding 7 / rulings 57-58 (pins.md 3: "a PIN ... cancels a
         // delayed change still pending for an output it writes, so a stale
         // delayed field change cannot land after a PIN"). Only with
         // LANE_HAZARD (lane_haz.sby); the seven tasks of lane.sby do not see
@@ -942,8 +952,10 @@ module lane_props #(
         //             the PIN's cycle applies, or a halt / reset.
         //  h_abort, h_halt, h_wrtick: no delayed change survives an abort,
         //             a halt or a SETM TICK (tick.md 9.2 rule 2 / halt).
-        //  LANE_HAZ_NO_OUT3 leaves out the out3 statements (for an
-        //  unbounded run of the neighbouring cases).
+        //  Before ruling 58 h_pend3 / h_keep3 failed (ruling 57, 10-cycle
+        //  trace); with the amended tick.md 9.2 rule 4 (a delayed request
+        //  made in the cycle a PIN writes its output is dropped) all of them
+        //  must hold (lane_haz.sby haz_prove, unbounded).
         wire hz_d    = w_dly_cfg_dly_i != 8'd0;
         wire hz_cdel = w_dly_creq_i && w_dly_creq_dly_i &&  w_dly_cfg_dlyclk_i && hz_d;
         wire hz_ddel = w_dly_dreq_i && w_dly_dreq_dly_i && !w_dly_cfg_dlyclk_i && hz_d;
@@ -980,10 +992,8 @@ module lane_props #(
                 end
             end
         always @* if (MAIN == 1 && ok1) begin
-`ifndef LANE_HAZ_NO_OUT3
             if (hz_ppin[3]) h_pend3: assert (!(w_dly_pv && w_dly_pclk));
             if (hz_win[3])  h_keep3: assert (w_pins_val[3] == hz_v[3] && w_pins_oe[3] == hz_e[3]);
-`endif
             if (hz_ppin[0]) h_pend0: assert (!(w_dly_pv && !w_dly_pclk));
             if (hz_ppin[1]) h_pend1: assert (!(w_dly_pv && !w_dly_pclk && w_dly_ppay[2]));
             if (hz_win[0])  h_keep0: assert (w_pins_val[0] == hz_v[0] && w_pins_oe[0] == hz_e[0]);

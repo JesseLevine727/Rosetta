@@ -54,6 +54,12 @@ module rosetta_delay (
                   (pv && (pclk ? cpass : dpass)) ||
                   (pin_we_i && pv && pinhit);
 
+  // A delayed request made in the cycle a PIN writes an output that request
+  // would write is dropped: the PIN wins (tick.md 9.2 rule 4, ruling 58).
+  logic newhit, newdrop;
+  assign newhit  = cdel ? pin_mask_i[3] : (pin_mask_i[0] || (pin_mask_i[1] && dpay_i[2]));
+  assign newdrop = pin_we_i && newdel && newhit;
+
   // 3. Output.
   logic pout;
   assign pout = pv && !cancel && (mat || newdel);
@@ -76,7 +82,7 @@ module rosetta_delay (
       pv <= 1'b0; pclk <= 1'b0; ppay <= '0; pcap <= 1'b0; pcnt <= '0;
     end else if (!run_i) begin
       pv <= 1'b0; pclk <= 1'b0; ppay <= '0; pcap <= 1'b0; pcnt <= '0;
-    end else if (newdel && !abort_i && !wr_tick_i) begin
+    end else if (newdel && !newdrop && !abort_i && !wr_tick_i) begin
       pv   <= 1'b1;
       pclk <= cdel;
       ppay <= cdel ? {3'd0, cpay_i} : dpay_i;

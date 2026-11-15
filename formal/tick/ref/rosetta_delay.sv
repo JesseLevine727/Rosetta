@@ -17,6 +17,16 @@
 //    MUT_D_ZERO       D = 0 still delays (by one cycle)
 //    MUT_D_FLUSH_LOST a new delayed request drops the pending change
 //    MUT_D_DCAP_ANY   dcap_o for every delayed clock change
+//  Ruling 58 (tick.md 9.2 rule 4 amended, 15 Nov: a delayed request made in
+//  the cycle a PIN writes an output it would write is dropped):
+//    MUT_DROP_NONE     no drop at all (the old rule 4)
+//    MUT_DROP_NOPINWE  drop decided from pin_mask_i without pin_we_i
+//    MUT_DROP_CLKBIT   clock stream tested against pin_mask_i[2], not [3]
+//    MUT_DROP_NOW1     an out1-only PIN drops a data request without w1_new
+//    MUT_DROP_NOFLUSH  a dropped request does not flush a pending change the
+//                      PIN does not cancel (rule 3); it stays pending
+//    MUT_DROP_CLRPEND  a drop also clears a pending change the PIN does not
+//                      hit, without outputting it
 // ===========================================================================
 module rosetta_delay (
     input  wire       clk,
@@ -57,6 +67,18 @@ module rosetta_delay (
     wire dpass = dreq_i & ~ddel;
     wire cpass = creq_i & ~cdel;
     wire nreq  = ddel | cdel;
+    wire w1n   = dpay_i[2];
+`ifdef MUT_DROP_NONE
+    wire drop  = 1'b0;
+`elsif MUT_DROP_NOPINWE
+    wire drop  = nreq & (cdel ? pin_mask_i[3] : (pin_mask_i[0] | (pin_mask_i[1] & w1n)));
+`elsif MUT_DROP_CLKBIT
+    wire drop  = nreq & pin_we_i & (cdel ? pin_mask_i[2] : (pin_mask_i[0] | (pin_mask_i[1] & w1n)));
+`elsif MUT_DROP_NOW1
+    wire drop  = nreq & pin_we_i & (cdel ? pin_mask_i[3] : (pin_mask_i[0] | pin_mask_i[1]));
+`else
+    wire drop  = nreq & pin_we_i & (cdel ? pin_mask_i[3] : (pin_mask_i[0] | (pin_mask_i[1] & w1n)));
+`endif
 
 `ifdef MUT_D_PS_RAW
     wire [7:0] step = 8'd1;
@@ -80,6 +102,10 @@ module rosetta_delay (
     wire can  = abort_i | wr_tick_i | (pclk ? cpass : dpass) | phit;
 `ifdef MUT_D_FLUSH_LOST
     wire fire = pv & ~can & mat & ~nreq;
+`elsif MUT_DROP_NOFLUSH
+    wire fire = pv & ~can & (mat | (nreq & ~drop));
+`elsif MUT_DROP_CLRPEND
+    wire fire = pv & ~can & (mat | (nreq & ~drop));
 `else
     wire fire = pv & ~can & (mat | nreq);
 `endif
@@ -101,10 +127,14 @@ module rosetta_delay (
             pv <= 1'b0; pclk <= 1'b0; pcap <= 1'b0; ppay <= 5'd0; pcnt <= 8'd0;
         end else if (!run_i) begin
             pv <= 1'b0; pclk <= 1'b0; pcap <= 1'b0; ppay <= 5'd0; pcnt <= 8'd0;
-        end else if (nreq & ~abort_i & ~wr_tick_i) begin
+        end else if (nreq & ~drop & ~abort_i & ~wr_tick_i) begin
             pv <= 1'b1; pclk <= cdel; pcap <= creq_cap_i; pcnt <= 8'd0;
             ppay <= cdel ? {3'b000, cpay_i} : dpay_i;
+`ifdef MUT_DROP_CLRPEND
+        end else if (fire | can | drop) begin
+`else
         end else if (fire | can) begin
+`endif
             pv <= 1'b0;
         end else begin
             pcnt <= nsat;

@@ -330,10 +330,18 @@ Per cycle t (not halted):
    the pending change is output in t on its stream (`d_we_o` or `c_we_o`
    with `ppay`), `dcap_o = pclk && pcap`. A pending change is never lost
    except by cancel: a new delayed request flushes it early.
-4. **Next state.** If a delayed request arrives in t (and `!abort_i`,
-   `!wr_tick_i`): `pv = 1`, `pclk`, `ppay`, `pcap = creq_cap_i`, `pcnt = 0`.
-   Else if output or cancel: `pv = 0`. Else `pcnt` advances (by 1, or by
-   `pt_i` in prescaled mode, saturating).
+4. **Next state.** A delayed request arriving in t is **dropped** if a
+   `PIN` in t writes an output that request would write:
+   `drop = pin_we_i && (clock request ? pin_mask_i[3] : (pin_mask_i[0] ||
+   (pin_mask_i[1] && w1_new)))`, with `w1_new` = `dpay_i[2]`, the new
+   request's "also write `out1`" bit (ruling 58: the `PIN` wins, also
+   against a change requested in its own cycle). If a delayed request
+   arrives in t and is not dropped (and `!abort_i`, `!wr_tick_i`): `pv = 1`,
+   `pclk`, `ppay`, `pcap = creq_cap_i`, `pcnt = 0`. Else if output or
+   cancel: `pv = 0`. Else `pcnt` advances (by 1, or by `pt_i` in prescaled
+   mode, saturating). Rules 2 and 3 are unchanged by a drop: a dropped
+   request still counts as "a new delayed request in t" in rule 3, so a
+   pending change the `PIN` does not cancel is still output in t.
 
 An undelayed request and an output of the other stream may occur in the same
 cycle; two changes of the same stream in one cycle cannot (rule 2). The

@@ -29,3 +29,7 @@ _build/
 
 # Competition reference material (emails, blog PDF): kept local only
 reference/
+
+# Python caches
+**/__pycache__/
+*.pyc

@@ -1,0 +1,6 @@
+// The standard library: ordinary crc statements.
+crc even_parity    = width 1  poly 0x1        init 0          xorout 0
+crc odd_parity     = width 1  poly 0x1        init 0          xorout 1
+crc crc5_usb       = width 5  poly 0x05       init 0x1F       xorout 0x1F       reflect
+crc crc16_usb      = width 16 poly 0x8005     init 0xFFFF     xorout 0xFFFF     reflect
+crc crc32_ethernet = width 32 poly 0x04C11DB7 init 0xFFFFFFFF xorout 0xFFFFFFFF reflect

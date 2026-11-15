@@ -4,8 +4,8 @@ Assembler / compiler / configuration flow that turns protocol programs in
 `programs/` into images loaded onto the chip, plus the host-side loader for
 the Tiny Tapeout demo board (RP2350).
 
-The compiler (description file to program images, monitors and schedule
-check) and the loader are still to come. What is here now:
+The loader and the compiler's formal monitors are still to come. What is
+here now:
 
 | Module | What it does |
 |---|---|
@@ -14,6 +14,9 @@ check) and the loader are still to come. What is here now:
 | `rosetta/model.py` | Cycle-accurate model of one lane plus the shared logic it sees |
 | `rosetta/wave.py` | ASCII waveforms of model traces |
 | `rosetta/lang.py` | Parser for the core description language (`docs/language.md` 5.1), giving a typed syntax tree |
+| `rosetta/compiler.py` | Compiler: description + role + parameters to a lane program, its mode-register values and a host manifest (milestone 1: UART, section below) |
+| `rosetta/compile.py` | Command line for the compiler |
+| `rosetta/stdlib.ros` | The standard library of check functions (`docs/language.md` 3.12) |
 
 Everything uses only the CPython standard library. MicroPython has no
 `dataclasses`, so `isa.py` will not run on the board as it is. When the
@@ -29,6 +32,43 @@ python3 -m unittest discover -s toolchain/tests
 `MODEL_DECISIONS.md` lists every timing choice the model makes where
 `docs/isa.md` leaves it open, with the isa.md text each choice interprets,
 and the problems found in isa.md while building the model.
+
+`tests/test_uart_rtl.py` runs compiled programs on the chip RTL
+(`src/rosetta_top.sv`) under Verilator, loading them through the host SPI
+port (`tests/rtlsim.py`, harness `tests/rtl/rosetta_tb.cpp`). It looks for
+Verilator in `ROSETTA_VERILATOR`, the OSS CAD Suite path or `PATH`, skips if
+there is none, and builds into `ROSETTA_SIM_BUILD` (default: a directory in
+the system temporary directory, keyed by a hash of the sources).
+`ROSETTA_SIM_REPORT=1` prints what was sent, received and measured.
+
+## Compiler
+
+```
+cd toolchain
+python3 -m rosetta.compile ../programs/uart/uart.ros --role receiver -p parity=even
+python3 -m rosetta.compile ../programs/uart/uart.ros --role sender -p baud=9600 --origin 32 -o OUT
+```
+
+The roles are the description's parties plus `listener`. Output: the
+listing, the mode-register values the program's prologue writes, and the
+manifest (`docs/language.md` 3.15: in-queue words per frame, out-queue record
+layout and tags, pins, timing, the schedule check). `-o DIR` writes
+`PROTOCOL_ROLE.asm` and `PROTOCOL_ROLE.json`.
+
+Stages, each a function in `compiler.py`: parse (`lang.py`) -> elaborate
+(parameters, compile-time `if`, names, units, widths: `ProtocolM`) -> project
+onto a role (drive / sample / expect per field, pins, host words, tags:
+`RoleIR`) -> timing (tick mode, prescale, `PERIOD`/`PERIOD2`, rate rounding
+against `tolerance`, receiver sampling window) -> generate (instruction lines
+with schedule metadata) -> schedule check (3.16 item 8) -> assemble.
+
+Milestone 1 covers what the UART description uses: `clock rate` with
+`tolerance`, push-pull wires, one frame with an implicit start, data and
+constant fields, check functions (parity), compile-time `if`, `else end` and
+`else continue`. Every other construct stops with `Unsupported` naming it.
+The choices the language leaves open are listed, with the text they
+interpret, in `compiler.INTERPRETATIONS`; each is marked `# I<n>` where it is
+applied.
 
 ## Assembly syntax
 

@@ -1,0 +1,97 @@
+# ============================================================================
+#  SymbiYosys job T2 for the chip top: reset determinism (top.md 5 T2, with
+#  assumption (W)), chip level, two copies with identical TT inputs.
+#      sby -f -d ref/build/t2_prove top_t2.sby prove   (prove | bmc | cover)
+#
+#  STATUS (clean reference): NOT DISCHARGED UNBOUNDED. prove ends UNKNOWN:
+#  the basecase (BMC from reset, with (W)) passes to depth 12; the induction
+#  step fails (CTI: the sequencer's hidden D/X pipeline register, not
+#  visible at any port, starts inconsistent in one copy and emits a strobe
+#  to a lane outside its X cycle; the helper a_t2_strobe_slot, i.e.
+#  sequencer.md property 5 as an assertion, is itself not k-inductive from
+#  an arbitrary state). scover (the (W) covers on scripted SPI frames) was
+#  not run: the one-copy chip-level scripted cover already exceeds 30 min.
+#
+#  Design (each copy): real u_host, u_xbar, u_seq, u_chan, u_mem_prog,
+#  u_mem_data; all four lanes SHELLS under the relational lane lemma
+#  (lane.md 9 property 3); the SRAM macros driven by top_t2_mem (arbitrary,
+#  independent contents and A_DOUT; equal read values only for written
+#  words). See top_props.sv, top_t2_props.
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_top.sv ../../src/rosetta_top.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_top.sv ref/rosetta_top.sv
+rosetta_xbar.sv ../../src/rosetta_xbar.sv
+rosetta_host.sv ../../src/rosetta_host.sv
+rosetta_seq.sv ../../src/rosetta_seq.sv
+rosetta_chan.sv ../../src/rosetta_chan.sv
+rosetta_mem_prog.sv ../../src/rosetta_mem_prog.sv
+rosetta_mem_data.sv ../../src/rosetta_mem_data.sv
+rosetta_sram512x32.sv ../../src/rosetta_sram512x32.sv
+shell_macro_ext.sv
+shells.sv
+top_wb.svh
+top_wb_ab.ys
+top_wb_mac_ab.ys
+top_ni_mac.ys
+top_props.sv
+top_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  k-induction (smtbmc bitwuzla), depth 12: the invariant is equality
+#         of all observable state (host, sequencer, crossbar, channel,
+#         memory-wrapper obs ports, the macro pins, the lanes' inputs); the
+#         hidden state (sequencer IR and D/X register, crossbar s1/s2, host
+#         sclk_prev, the models' A_DOUT) is a function of at most one wheel
+#         turn of inputs: depth 12 = two turns plus margin.
+#  bmc    depth 20, supplementary.
+#  cover  depth 20: reset release; the unwritten-word cover shows the memory
+#         model's independence (a fetch of an unwritten word differs).
+#  scover the (W) assumptions' covers, with the SPI pins driven by a scripted
+#         master (4 frames of 48 bits, 112 cycles each, from step 6): a host
+#         read of a written program word, then lane 0 executing that word.
+#         Depth 470 (4 x 112 + 6 + service + lane 0's first D cycle),
+#         covers checked from step 440 (skip: they are sticky).
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+scover
+
+[options]
+prove: mode prove
+prove: depth 12
+bmc: mode bmc
+bmc: depth 20
+cover: mode cover
+cover: depth 20
+scover: mode cover
+scover: depth 470
+scover: skip 440
+
+[engines]
+prove: smtbmc bitwuzla
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+scover: smtbmc bitwuzla
+
+[script]
+scover: read -define TOP_SPI_SCRIPT
+read -define TOP_REAL_ROSETTA_XBAR TOP_REAL_ROSETTA_HOST TOP_REAL_ROSETTA_SEQ TOP_REAL_ROSETTA_CHAN TOP_REAL_ROSETTA_MEM_PROG TOP_REAL_ROSETTA_MEM_DATA
+read -formal shell_macro_ext.sv
+read -formal rosetta_sram512x32.sv
+read -formal rosetta_xbar.sv rosetta_host.sv rosetta_seq.sv rosetta_chan.sv rosetta_mem_prog.sv rosetta_mem_data.sv
+read -formal shells.sv
+read -formal rosetta_top.sv
+read -formal top_props.sv
+read -formal top_fv.sv
+prep -top top_t2_fv
+flatten
+script top_wb_ab.ys
+script top_wb_mac_ab.ys
+script top_ni_mac.ys
+opt_clean

@@ -1,0 +1,63 @@
+# ============================================================================
+#  SymbiYosys job W (wiring) for the chip top tt_um_jesselevine727_rosetta.
+#  Run from formal/top/, run directories out of the tree:
+#      sby -f -d ref/build/wire_prove top_wire.sby prove   (prove | bmc | cover)
+#
+#  What it proves: every row of top.md section 4 (interconnect), the Tiny
+#  Tapeout mapping of section 2, the reset distribution of section 3 (every
+#  block's rst_n is the two-flop synchronised reset), the register-read OR,
+#  that `ena` reaches nothing, and the instance parameters (lane RTRIP = 4,
+#  N_LANES = 4). EVERY component is a shell (shells.sv: free outputs), so
+#  each connection is checked against arbitrary values in every cycle; the
+#  only state is the design's own top-level logic and the checker's reset
+#  model. Shell assumption used: seq a_p5_lane_run (lane_run_o == run_o).
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_top.sv ../../src/rosetta_top.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_top.sv ref/rosetta_top.sv
+shells.sv
+top_wb.svh
+top_wb.ys
+top_props.sv
+top_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  k-induction depth 4 (smtbmc bitwuzla) and abc pdr in parallel. The
+#         checker's reset model is three cycles deep; the design top holds
+#         only its reset synchroniser (two flops), so depth 4 closes.
+#  bmc    depth 8, supplementary: covers the reset model's three-cycle
+#         window twice over from arbitrary initial flop values.
+#  cover  depth 8: release after reset (cycle 2), mid-trace reset.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 4
+bmc: mode bmc
+bmc: depth 8
+cover: mode cover
+cover: depth 8
+
+[engines]
+prove: smtbmc bitwuzla
+prove: abc pdr
+bmc: smtbmc bitwuzla
+cover: smtbmc yices
+
+[script]
+read -define TOP_CHK_WIRE
+read -formal shells.sv
+read -formal rosetta_top.sv
+read -formal top_props.sv
+read -formal top_fv.sv
+prep -top top_fv
+flatten
+script top_wb.ys
+opt_clean

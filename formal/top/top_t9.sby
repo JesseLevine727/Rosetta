@@ -1,0 +1,68 @@
+# ============================================================================
+#  SymbiYosys job T9 for the chip top: a listener never enables an output
+#  (top.md 5 T9), one copy, CORE level: as top_chip.sby but u_host is a shell
+#  (free request interface under the slot rule), plus the lane's
+#  hardware half as an assumption on each lane shell (lane.md 9 property 12,
+#  port level; see top_props.sv, top_t9_props).
+#      sby -f -d ref/build/t9_prove top_t9.sby prove   (prove | bmc | cover)
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_top.sv ../../src/rosetta_top.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_top.sv ref/rosetta_top.sv
+rosetta_xbar.sv ../../src/rosetta_xbar.sv
+rosetta_seq.sv ../../src/rosetta_seq.sv
+rosetta_chan.sv ../../src/rosetta_chan.sv
+rosetta_mem_prog.sv ../../src/rosetta_mem_prog.sv
+rosetta_mem_data.sv ../../src/rosetta_mem_data.sv
+rosetta_sram512x32.sv ../../src/rosetta_sram512x32.sv
+shell_macro_free.sv
+shells.sv
+top_wb.svh
+top_wb.ys
+top_wb_mac.ys
+top_props.sv
+top_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  abc pdr and k-induction (smtbmc bitwuzla, depth 8) in parallel.
+#  bmc    depth 30 (six wheel turns after reset), supplementary.
+#  cover  depth 25: a lane runs as a listener with a pin mapped to it; a
+#         lane that has executed an E instruction drives an enable.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 8
+bmc: mode bmc
+bmc: depth 30
+cover: mode cover
+cover: depth 25
+
+[engines]
+prove: abc pdr
+prove: smtbmc bitwuzla
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+read -define TOP_CHK_T9
+read -define TOP_REAL_ROSETTA_XBAR TOP_REAL_ROSETTA_SEQ TOP_REAL_ROSETTA_CHAN TOP_REAL_ROSETTA_MEM_PROG TOP_REAL_ROSETTA_MEM_DATA
+read -formal shell_macro_free.sv
+read -formal rosetta_sram512x32.sv
+read -formal rosetta_xbar.sv rosetta_seq.sv rosetta_chan.sv rosetta_mem_prog.sv rosetta_mem_data.sv
+read -formal shells.sv
+read -formal rosetta_top.sv
+read -formal top_props.sv
+read -formal top_fv.sv
+prep -top top_fv
+flatten
+script top_wb.ys
+script top_wb_mac.ys
+opt_clean

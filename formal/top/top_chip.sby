@@ -1,0 +1,80 @@
+# ============================================================================
+#  SymbiYosys job CHIP for the chip top: reset and quiescence (T1 reset part,
+#  T3, T4), pin mapping and synchronisers (top.md 2, rulings 2/14/31), T5
+#  (top half), T6, T7, T12 -- end to end at the TT pins and the instance
+#  ports. Run from formal/top/:
+#      sby -f -d ref/build/chip_prove top_chip.sby prove   (prove | bmc | cover)
+#
+#  Design: the top with the REAL shared blocks (u_xbar, u_host, u_seq,
+#  u_chan, u_mem_prog, u_mem_data); the SRAM macros free (A_DOUT arbitrary in
+#  every cycle: no property here depends on memory contents, mem.md 4.2 "need
+#  no memory model at all"); the four lanes are SHELLS (free outputs) with
+#  NOTHING assumed about them, so every property holds for any lane
+#  behaviour. SPI and protocol pins free; rst_n low in the first cycle.
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_top.sv ../../src/rosetta_top.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_top.sv ref/rosetta_top.sv
+rosetta_xbar.sv ../../src/rosetta_xbar.sv
+rosetta_host.sv ../../src/rosetta_host.sv
+rosetta_seq.sv ../../src/rosetta_seq.sv
+rosetta_chan.sv ../../src/rosetta_chan.sv
+rosetta_mem_prog.sv ../../src/rosetta_mem_prog.sv
+rosetta_mem_data.sv ../../src/rosetta_mem_data.sv
+rosetta_sram512x32.sv ../../src/rosetta_sram512x32.sv
+shell_macro_free.sv
+shells.sv
+top_wb.svh
+top_wb.ys
+top_wb_mac.ys
+top_props.sv
+top_fv.sv
+
+# ----------------------------------------------------------------------------
+#  prove  abc pdr and k-induction (smtbmc bitwuzla, depth 8) in parallel;
+#         the first conclusive answer wins.
+#  bmc    depth 30, supplementary: from arbitrary flop values, reset in the
+#         first cycle (released at step 2), six wheel turns, every property
+#         window (at most 3 cycles of history + the 8-cycle cyc counter).
+#  cover  depth 45: shallow covers on free pins (deepest: c_miso_data, a read
+#         frame's 16 command/dummy edges on free pins, reached at step 38).
+#         The deep covers (served writes, a lane started, a pin driven by a
+#         real lane: the complete bring-up) are in top_bringup.sby.
+# ----------------------------------------------------------------------------
+[tasks]
+prove
+bmc
+cover
+
+[options]
+prove: mode prove
+prove: depth 8
+bmc: mode bmc
+bmc: depth 30
+cover: mode cover
+cover: depth 45
+
+[engines]
+prove: abc pdr
+prove: smtbmc bitwuzla
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+read -define TOP_CHK_CHIP
+read -define TOP_REAL_ROSETTA_XBAR TOP_REAL_ROSETTA_HOST TOP_REAL_ROSETTA_SEQ TOP_REAL_ROSETTA_CHAN TOP_REAL_ROSETTA_MEM_PROG TOP_REAL_ROSETTA_MEM_DATA
+read -formal shell_macro_free.sv
+read -formal rosetta_sram512x32.sv
+read -formal rosetta_xbar.sv rosetta_host.sv rosetta_seq.sv rosetta_chan.sv rosetta_mem_prog.sv rosetta_mem_data.sv
+read -formal shells.sv
+read -formal rosetta_top.sv
+read -formal top_props.sv
+read -formal top_fv.sv
+prep -top top_fv
+flatten
+script top_wb.ys
+script top_wb_mac.ys
+opt_clean

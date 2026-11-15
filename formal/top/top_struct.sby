@@ -1,0 +1,75 @@
+# ============================================================================
+#  SymbiYosys job STRUCT for the chip top, two structural checks on the
+#  complete chip:
+#   T1 (structural half): every flip-flop of the complete chip has an
+#      asynchronous reset -- there is no $dff/$sdff/$dffe/latch/memory cell
+#      after `prep; flatten` (conventions: "every flop is reset"; the SRAM
+#      macros are the free model, they are not flops of the design). With
+#      the W job (each block's rst_n is the synchronised reset, exact model
+#      of the synchroniser from arbitrary initial values) and the cycle-0
+#      checks of the CHIP job (a_c0_*), this discharges T1 at the top.
+#   T11 (top.md 5) -- no combinational
+#  path from ui_in / uio_in / rst_n (other than through flop resets) to
+#  uo_out / uio_out / uio_oe. `ena` is included in the inputs (top.md 2:
+#  unused; any path from it is a use).
+#      sby -f -d ref/build/struct_prove top_struct.sby prove
+#
+#  Design: the COMPLETE chip with every real component, including the four
+#  real lanes (src/rosetta_lane.sv and its proven sub-blocks); the SRAM macro
+#  is the free model (A_DOUT is a registered macro output in silicon, mem.md
+#  1, so it is a valid cut). The check is structural, done by Yosys in the
+#  [script] before any solver runs: the forward cone of the inputs, not
+#  crossing any flip-flop (async-reset flops included, which is what "other
+#  than through flop resets" allows), must not reach an output. The design is
+#  mapped to single-bit gates first, so the cone is bit-exact. A violation
+#  makes `select -assert-none` fail: the task ends ERROR (= killed).
+#  The solver part is a trivial one-step BMC of the checker-free top.
+#
+#  ---- Design under verification: exactly ONE of the two lines below ----
+#  The real design (default):
+[files]
+rosetta_top.sv ../../src/rosetta_top.sv
+#  The property writer's private reference model (NOT the design):
+#rosetta_top.sv ref/rosetta_top.sv
+rosetta_xbar.sv ../../src/rosetta_xbar.sv
+rosetta_host.sv ../../src/rosetta_host.sv
+rosetta_seq.sv ../../src/rosetta_seq.sv
+rosetta_chan.sv ../../src/rosetta_chan.sv
+rosetta_mem_prog.sv ../../src/rosetta_mem_prog.sv
+rosetta_mem_data.sv ../../src/rosetta_mem_data.sv
+rosetta_sram512x32.sv ../../src/rosetta_sram512x32.sv
+rosetta_lane.sv ../../src/rosetta_lane.sv
+rosetta_cfg.sv ../../src/rosetta_cfg.sv
+rosetta_tick.sv ../../src/rosetta_tick.sv
+rosetta_delay.sv ../../src/rosetta_delay.sv
+rosetta_coding.sv ../../src/rosetta_coding.sv
+rosetta_field.sv ../../src/rosetta_field.sv
+rosetta_crc.sv ../../src/rosetta_crc.sv
+rosetta_stuff.sv ../../src/rosetta_stuff.sv
+rosetta_events.sv ../../src/rosetta_events.sv
+rosetta_pins.sv ../../src/rosetta_pins.sv
+shell_macro_free.sv
+
+[tasks]
+prove
+
+[options]
+prove: mode bmc
+prove: depth 1
+
+[engines]
+prove: smtbmc bitwuzla
+
+[script]
+read -formal shell_macro_free.sv
+read -formal rosetta_sram512x32.sv
+read -formal rosetta_xbar.sv rosetta_host.sv rosetta_seq.sv rosetta_chan.sv rosetta_mem_prog.sv rosetta_mem_data.sv
+read -formal rosetta_cfg.sv rosetta_tick.sv rosetta_delay.sv rosetta_coding.sv rosetta_field.sv rosetta_crc.sv rosetta_stuff.sv rosetta_events.sv rosetta_pins.sv rosetta_lane.sv
+read -formal rosetta_top.sv
+prep -top tt_um_jesselevine727_rosetta
+flatten
+select -assert-none t:$dff t:$dffe t:$sdff t:$sdffe t:$sdffce t:$ff t:$dlatch t:$adlatch t:$sr t:$dffsr t:$dffsre t:$aldff t:$aldffe t:$mem_v2 t:$mem
+techmap
+opt_clean
+splitnets -ports
+select -assert-none w:ui_in* w:uio_in* %u w:rst_n %u w:ena %u %co*:-$_DFF_P_,$_DFF_PN0_,$_DFF_PN1_,$_DFF_PP0_,$_DFF_PP1_,$_DFFE_PP_,$_DFFE_PN0P_,$_DFFE_PN1P_,$_DFFE_PP0P_,$_DFFE_PP1P_,$_SDFF_PN0_,$_SDFF_PN1_,$_SDFF_PP0_,$_SDFF_PP1_,$_SDFFE_PN0P_,$_SDFFE_PN1P_,$_SDFFE_PP0P_,$_SDFFE_PP1P_,$_SDFFCE_PN0P_,$_SDFFCE_PN1P_,$_SDFFCE_PP0P_,$_SDFFCE_PP1P_,$_ALDFF_PP_,$_ALDFF_PN_,$_DFFSR_PNN_,$_DFFSR_PPP_ w:uo_out* w:uio_out* %u w:uio_oe* %u %i

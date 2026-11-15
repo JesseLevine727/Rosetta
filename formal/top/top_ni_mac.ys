@@ -1,0 +1,6 @@
+# Drive the SRAM macro outputs of both copies from the paired memory models
+# of top_ni_props (the macro shell shell_macro_ext.sv leaves A_DOUT undriven).
+connect -nounset -set \u_a.u_mem_prog.u_sram.u_macro.A_DOUT dout_pa
+connect -nounset -set \u_b.u_mem_prog.u_sram.u_macro.A_DOUT dout_pb
+connect -nounset -set \u_a.u_mem_data.u_sram.u_macro.A_DOUT dout_da
+connect -nounset -set \u_b.u_mem_data.u_sram.u_macro.A_DOUT dout_db

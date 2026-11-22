@@ -1,0 +1,189 @@
+{
+ "variant": "base",
+ "frames_per_step": 40,
+ "limits": {
+  "dcd/rand": {
+   "h1": [
+    33.0,
+    33.5
+   ],
+   "classifier": [
+    16.5,
+    17.0
+   ]
+  },
+  "dcd/runs": {
+   "h1": [
+    33.0,
+    33.5
+   ],
+   "classifier": [
+    16.5,
+    17.0
+   ]
+  },
+  "alt/rand": {
+   "h1": [
+    16.5,
+    17.0
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "alt/runs": {
+   "h1": [
+    16.5,
+    17.0
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "uniform/rand": {
+   "h1": [
+    13.0,
+    13.5
+   ],
+   "classifier": [
+    9.0,
+    9.5
+   ]
+  },
+  "gauss/rand": {
+   "h1": [
+    4.0,
+    4.5
+   ],
+   "classifier": [
+    3.5,
+    4.0
+   ]
+  },
+  "isi+/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    16.5,
+    17.0
+   ]
+  },
+  "isi+/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    16.5,
+    17.0
+   ]
+  },
+  "isi-/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "isi-/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "step8/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "step8/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "step32/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "step32/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "step128/rand": {
+   "h1": [
+    7.5,
+    8.0
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  },
+  "step128/runs": {
+   "h1": [
+    7.5,
+    8.0
+   ],
+   "classifier": [
+    8.0,
+    8.5
+   ]
+  }
+ },
+ "at_13p5ns_fails_of_200": {
+  "dcd/rand": 0,
+  "dcd/runs": 0,
+  "alt/rand": 0,
+  "alt/runs": 0,
+  "isi+/rand": 148,
+  "isi+/runs": 167,
+  "isi-/rand": 151,
+  "isi-/runs": 166,
+  "step8/rand": 23,
+  "step8/runs": 47,
+  "step32/rand": 146,
+  "step32/runs": 154,
+  "step128/rand": 146,
+  "step128/runs": 158,
+  "uniform/rand": 5
+ },
+ "min_preamble_bits_incl_sfd": {
+  "none@0.0": 26,
+  "dcd@27.0": 43,
+  "uniform@8.0": 43
+ },
+ "link_pulse_bits": 0
+}

@@ -1,0 +1,19 @@
+base     dcd      rand  H1 ok<=33.0 fail@33.5 | classifier ok<=16.5 fail@17.0
+base     dcd      runs  H1 ok<=33.0 fail@33.5 | classifier ok<=16.5 fail@17.0
+base     alt      rand  H1 ok<=16.5 fail@17.0 | classifier ok<=8.0 fail@8.5
+base     alt      runs  H1 ok<=16.5 fail@17.0 | classifier ok<=8.0 fail@8.5
+base     uniform  rand  H1 ok<=13.0 fail@13.5 | classifier ok<=9.0 fail@9.5
+base     gauss    rand  H1 ok<=4.0 fail@4.5 | classifier ok<=3.5 fail@4.0
+base     isi+     rand  H1 ok<=8.0 fail@8.5 | classifier ok<=16.5 fail@17.0
+base     isi+     runs  H1 ok<=8.0 fail@8.5 | classifier ok<=16.5 fail@17.0
+base     isi-     rand  H1 ok<=8.0 fail@8.5 | classifier ok<=8.0 fail@8.5
+base     isi-     runs  H1 ok<=8.0 fail@8.5 | classifier ok<=8.0 fail@8.5
+base     step8    rand  H1 ok<=8.0 fail@8.5 | classifier ok<=8.0 fail@8.5
+base     step8    runs  H1 ok<=8.0 fail@8.5 | classifier ok<=8.0 fail@8.5
+base     step32   rand  H1 ok<=8.0 fail@8.5 | classifier ok<=8.0 fail@8.5
+base     step32   runs  H1 ok<=8.0 fail@8.5 | classifier ok<=8.0 fail@8.5
+base     step128  rand  H1 ok<=7.5 fail@8.0 | classifier ok<=8.0 fail@8.5
+base     step128  runs  H1 ok<=7.5 fail@8.0 | classifier ok<=8.0 fail@8.5
+802.3 point (A=13.5 ns per crossing; dcd = 27 ns): {'dcd/rand': 0, 'dcd/runs': 0, 'alt/rand': 0, 'alt/runs': 0, 'isi+/rand': 148, 'isi+/runs': 167, 'isi-/rand': 151, 'isi-/runs': 166, 'step8/rand': 23, 'step8/runs': 47, 'step32/rand': 146, 'step32/runs': 154, 'step128/rand': 146, 'step128/runs': 158, 'uniform/rand': 5}
+acquisition: fewest preamble+SFD bits that decode in 60/60 frames: {'none@0.0': 26, 'dcd@27.0': 43, 'uniform@8.0': 43}
+bits produced by 100 link pulses (both polarities): 0

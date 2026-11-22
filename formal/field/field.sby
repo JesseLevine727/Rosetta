@@ -1,6 +1,8 @@
 # ============================================================================
 #  SymbiYosys job for rosetta_field (field.md; lane.md 7; decisions 6, 7,
-#  18-20, 24, 26-29, 32-38). Run from formal/field/, run dirs under
+#  18-20, 24, 26-29, 32-38; amendment-eth-can.md H3: cfg_rawedge_i free under
+#  env_cfg, RAW DRIVE completion generalised, P-H3a; ruling 60 / amendment
+#  2.5: output ot_cancel_o, exact in every cycle). Run from formal/field/, run dirs under
 #  ref/build/ (gitignored):
 #      sby -f field.sby -d ref/build/field_prove prove
 #      (tasks: prove | prove_e2e | bmc | cover)

@@ -343,10 +343,26 @@ def usb_async(ppms=(0.0, 15000.0, -15000.0)) -> dict:
                 return chip.dump(full=True)
 
             def host_eop_end(rows, before):
-                """The last SE0 -> J of the bus before cycle `before` (host's EOP end)."""
+                """The end of the host's EOP before cycle `before`: the last SE0 -> J
+                whose SE0 lasted at least half a bit. An EOP is two bit times of SE0.
+                Shorter both-low runs are not EOPs: the asynchronous host's two line
+                drivers are released one bit time after the EOP, and on some FPGA
+                builds that release shows as one chip cycle of both lines low (found
+                22 Nov: it made this measurement read 44-47 cycles instead of 82-87
+                while the device answered at the right time). They are counted in
+                r["short_se0"] so the harness artifact stays visible."""
                 ser = tu.bus_series(rows)
-                ends = [c for (c, dm, dp), (_, pdm, pdp) in zip(ser[1:], ser) if (dm, dp) == tu.J
-                        and (pdm, pdp) == tu.SE0 and c < before]
+                ends, start = [], None
+                for (c, dm, dp), (pc, pdm, pdp) in zip(ser[1:], ser):
+                    if (pdm, pdp) != tu.SE0 and (dm, dp) == tu.SE0:
+                        start = c
+                    if (pdm, pdp) == tu.SE0 and (dm, dp) != tu.SE0:
+                        length = c - (start if start is not None else pc)
+                        if length < TBIT // 2:
+                            r["short_se0"] = r.get("short_se0", 0) + 1
+                        elif (dm, dp) == tu.J and c < before:
+                            ends.append(c)
+                        start = None
                 return ends[-1] if ends else None
 
             def reply(rows):

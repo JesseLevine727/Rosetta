@@ -3,7 +3,9 @@
 // 5, 6, 18, 22, 23, 28, 29). Generates the launch, capture and sample
 // strobes in the four tick modes, the clock output requests (BAUD timer,
 // EDGE stretch_hold, TICK-write idle), the RTRIP-delayed BAUD sample, the
-// edge-interval counter and the operation timer.
+// edge-interval counter and the operation timer. RECOVER options rone and
+// rsp2 (TICK[14], TICK[15]) per amendment-eth-can.md section 3 (ruling 59);
+// with both 0 the block is unchanged.
 //
 // State (all reset to 0, all cleared while run_i = 0):
 //   pre (9)                   free-running prescaler (3.1, ruling 22)
@@ -17,7 +19,9 @@
 //   twq                       cycle after a TICK write (3.3)
 //   ecnt (16)                 edge interval (6)
 //   ov, ow (12), oc (16)      operation timer (7): remaining strobes are
-//                             (ow - 1) * period + oc, oc in 1..period
+//                             (ow - 1) * period + oc, oc in 1..period.
+//                             Cancelled by abort and by ot_cancel_i
+//                             (amendment-eth-can.md 2.5, ruling 60).
 //
 // Clock request arbitration (section 8 claims at most one per cycle): the
 // TICK-write idle request wins; the only other request that can coincide
@@ -31,6 +35,7 @@ module rosetta_tick #(
     input  wire  [1:0]  cfg_mode_i, cfg_ps_i, cfg_clkin_i,
     input  wire         cfg_capfall_i, cfg_clkout_i, cfg_idle_i, cfg_clkod_i,
     input  wire         cfg_rest_i, cfg_honour_i, cfg_hold_i,
+    input  wire         cfg_rone_i, cfg_rsp2_i,          // TICK[14], TICK[15]
     input  wire  [15:0] cfg_period_i, cfg_period2_i,
     input  wire  [7:0]  cfg_thr0_i, cfg_pw0_i, cfg_pw1_i,
     input  wire         cfg_dlyclk_i,
@@ -42,6 +47,7 @@ module rosetta_tick #(
     input  wire         launch_req_i, fld_next_i, fld_first_i,
     input  wire         data_wait_i,
     input  wire         ot_start_i, ot_raw_i,
+    input  wire         ot_cancel_i,       // 2.5: stop the timer from the next cycle
     input  wire  [15:0] ot_n_i,
     input  wire         dcap_i,
     output logic        pt_o,
@@ -107,7 +113,8 @@ module rosetta_tick #(
   assign cnt1 = cnt + 16'd1;
   assign inc  = (pt && cnt != 16'hFFFF) ? cnt1 : cnt;             // sat16(cnt + pt)
   // The equality rules "pt && inc == H" use cnt1 = cnt + 1 for inc: they need
-  // pt, and at cnt = 0xFFFF neither side can match (H is 1..0x7FFF or 1..255).
+  // pt, and at cnt = 0xFFFF neither side can match (H is 1..0x7FFF or 1..255;
+  // RECOVER's H' = PERIOD2 may be 0 or 0xFFFF, see 4.3 below).
   // The "inc >= limit" compares, arranged for depth: the max() in Pd, P2d,
   // Pr is a separate floor term (inc >= max(P, f) <=> inc >= P && inc >= f),
   // and the late pt only selects between two compares made from cnt:
@@ -199,10 +206,20 @@ module rosetta_tick #(
   assign e_clr   = !srel && stretch && fld_first_i;          // release starts
   assign e_adv   = srel && !ge_pd;
 
-  // ---- 4.3 RECOVER --------------------------------------------------------------
-  logic r_lt, r_ct;
-  assign r_lt = dedge_i || (pt && ge_pr);
-  assign r_ct = !dedge_i && pt && cnt1 == hr;               // inc == H
+  // ---- 4.3 RECOVER (amended by amendment-eth-can.md 3.1, H4) ---------------
+  // redge: a qualifying data edge. With rone only edges to level !TICK[6]
+  // (dline_i is the level after the edge) restart the timer; others are
+  // neither a launch tick nor a restart. The capture point H' is PERIOD2 with
+  // rsp2, else H = Pr >> 1; a capture at or beyond the wrap (inc >= Pr,
+  // possible only with rsp2 and PERIOD2 >= Pr) never happens (ruling 50).
+  // ct uses cnt1 for inc as before: with pt, cnt1 differs from inc only at
+  // cnt = 0xFFFF, where ge_pr holds and the !ge_pr term already gives 0.
+  logic        redge, r_lt, r_ct;
+  logic [15:0] hq;
+  assign redge = dedge_i && (!cfg_rone_i || dline_i == !cfg_capfall_i);
+  assign hq    = cfg_rsp2_i ? cfg_period2_i : hr;            // H'
+  assign r_lt  = redge || (pt && ge_pr);
+  assign r_ct  = !redge && pt && cnt1 == hq && !ge_pr;       // inc == H' && !(inc >= Pr)
 
   // Next value of the shared counter: a TICK write clears it; abort clears
   // it except in RECOVER, whose timer keeps running (and counts while idle).
@@ -331,19 +348,23 @@ module rosetta_tick #(
       if (dedge_i)                        ecnt <= {15'd0, pt};
       else if (pt && ecnt != 16'hFFFF)    ecnt <= ecnt + 16'd1;
 
-      // Operation timer: cancelled by abort (and by a new start).
+      // Operation timer: cancelled by abort and by ot_cancel_i, replaced by a
+      // new start. ot_cancel_i (amendment 2.5) clears only ov, also over a
+      // start in the same cycle; ow and oc are unused while ov = 0 and are
+      // reloaded by the next start. It acts on the state only, never on an
+      // output in its own cycle.
       if (abort_i) begin
         ov <= 1'b0; ow <= '0; oc <= '0;
       end else begin
-        ov <= o_on && !(o_step && o_last);
+        ov <= o_on && !(o_step && o_last) && !ot_cancel_i;
         if (o_step && oc_e == 16'd1) begin ow <= ow_e - 12'd1; oc <= pd; end
         else if (o_step)             begin ow <= ow_e;         oc <= oc_e - 16'd1; end
         else                         begin ow <= ow_e;         oc <= oc_e; end
       end
     end
 
-  // Spec ports not used by any rule: dline_i (only dedge_i is), cu_fld_i
-  // (an assumption on fld_first_i/launch_req_i, not an input to a rule).
+  // Spec port not used by any rule: cu_fld_i (an assumption on
+  // fld_first_i/launch_req_i, not an input to a rule).
   logic unused_ok;
-  assign unused_ok = &{1'b0, dline_i, cu_fld_i};
+  assign unused_ok = &{1'b0, cu_fld_i};
 endmodule

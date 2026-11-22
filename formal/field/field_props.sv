@@ -6,6 +6,26 @@
 //  (strobe guarantees), stuff.md, crc.md and docs/decisions.md ONLY. The RTL
 //  was not read. Every property is about the block's ports.
 //
+//  Amendment H3 (docs/blocks/amendment-eth-can.md 2, ruling 59): new input
+//  cfg_rawedge_i (CODE[12]). A RAW DRIVE completes in the first cycle c >= e
+//  (e = its effect cycle, unchanged) with
+//      G && (ot_done_i || (cfg_rawedge_i && dedge_i)).
+//  Changes here: a_i_rawd_done and the model's RAW DRIVE completion take the
+//  generalised form of amendment 2.3 (with cfg_rawedge_i = 0 they are the
+//  previous ones); new P-H3a (a_h3a_*); the early end changes no output
+//  (a_h3_quiet, a_h3_sr; amendment 2.2); covers c_h3_*; env_cfg covers
+//  cfg_rawedge_i like cfg_mode_i / cfg_honour_i (SETM CODE only to an idle
+//  lane, amendment 2.2). Define FIELD_ASSUME_H3_OFF assumes
+//  cfg_rawedge_i = 0 (zero-rule cross-check against the pre-amendment
+//  reference model only).
+//  Ruling 60 / amendment 2.5: new output ot_cancel_o = 1 exactly in a cycle
+//  in which a RAW DRIVE completes and ot_done_i = 0 (a completion by the
+//  edge term alone); 0 in every other cycle, constant 0 with
+//  cfg_rawedge_i = 0. Checked by the model (a_mdl_ot_cancel) and on the
+//  ports (a_h3_cancel, a_h3_cancel_off); it is one of the strobes (no
+//  cancel in an abort, halt, reset or idle cycle); a_h3_quiet now requires
+//  ot_cancel_o at an early end.
+//
 //  Three layers, all on the ports:
 //
 //   1. EXACT MODEL (a_mdl_*). field_spec (field_model.sv) is an executable
@@ -63,7 +83,8 @@
 //                (busy_o = cu_v_o || bt_run_i).
 //   env_s_op     park_op_i != 3 ("3 never sent").
 //   Configuration (field.md 9):
-//   env_cfg      cfg_mode_i, cfg_honour_i change only after a cycle with
+//   env_cfg      cfg_mode_i, cfg_honour_i, cfg_rawedge_i (CODE[12],
+//                amendment H3) change only after a cycle with
 //                cu_v_o = pk_v_o = 0 or run_i = 0.
 //   Tick (field.md 9, tick.md):
 //   env_t_ltct   lt_i and ct_i never in one cycle (field.md 9; tick.md 4.1
@@ -92,7 +113,9 @@
 //                SETM STUFF, which the sequencer issues only while busy_o =
 //                park_full_o = 0); 0 in and right after reset (stuff.md).
 //  Everything else is free: lt/ct outside the rules above, bt_run_i, bt_stop_i,
-//  ot_done_i, d16_i, dedge_i, rxb_i, rxv_i, ts_i, crc_state_i, crc_value_i
+//  ot_done_i (also: no relation between ot_done_i and ot_start_o; the
+//  "no stale ot_done" argument of amendment 2.2 is lane property P-H3b),
+//  d16_i, dedge_i, rxb_i, rxv_i, ts_i, crc_state_i, crc_value_i
 //  (the CRC may change in any cycle: stronger than the real unit).
 //
 //  Overseer rulings 32-38 (docs/decisions.md) are applied (field_model.sv
@@ -135,6 +158,7 @@ module field_props #(
     input wire        bt_stop_i,
     input wire        ot_done_i,
     input wire        cfg_honour_i,
+    input wire        cfg_rawedge_i,    // CODE[12], amendment H3
     input wire [15:0] d16_i,
     input wire        dedge_i,
     input wire        rxb_i,
@@ -162,6 +186,7 @@ module field_props #(
     input wire        ot_start_o,
     input wire        ot_raw_o,
     input wire [15:0] ot_n_o,
+    input wire        ot_cancel_o,      // ruling 60 / amendment 2.5
     input wire        tx_go_o,
     input wire        tx_bit_o,
     input wire        tx_rel_o,
@@ -195,14 +220,14 @@ module field_props #(
     wire park_ev = run_i && park_we_i && !abort_i;
     wire idle_sq = !cu_v_o && !pk_v_o && !bt_run_i;     // busy_o = park_full_o = 0
     wire strobes = tx_go_o || tx_rel_o || raw_go_o || pin_we_o || crc_en_o ||
-                   stf_valid_o || ot_start_o;
+                   stf_valid_o || ot_start_o || ot_cancel_o;
     wire baudt   = (cfg_mode_i == BAUD) || (cfg_mode_i == PULSE && cu_tx_o);
 
     // =====================================================================
     // Environment
     // =====================================================================
     logic p_run, p_abort, p_G, p_idle, p_sv, p_spset, p_st, p_stfv, p_cuv0pk0;
-    logic [2:0] p_cfg;
+    logic [3:0] p_cfg;
     logic p_stn, p_stb, p_rst, p_cudone;
     always @(posedge clk) begin
         p_run   <= run_i;
@@ -214,7 +239,7 @@ module field_props #(
         p_sv    <= spend_i;
         p_stfv  <= stf_valid_o;
         p_cuv0pk0 <= (!cu_v_o && !pk_v_o) || !run_i;
-        p_cfg   <= {cfg_mode_i, cfg_honour_i};
+        p_cfg   <= {cfg_mode_i, cfg_honour_i, cfg_rawedge_i};
         p_stn   <= stuff_next_i;
         p_stb   <= stuff_bit_i;
         p_rst   <= rst_n;
@@ -229,7 +254,8 @@ module field_props #(
     wire e_s_ack   = !res_ack_i || res_valid_o;
     wire e_s_cmd   = (cmd_i == 2'd0) || (!cu_v_o && !bt_run_i && !pk_v_o);
     wire e_s_op    = !park_we_i || park_op_i != 2'd3;
-    wire e_cfg     = !f_pv || !rst_n || !p_rst || ({cfg_mode_i, cfg_honour_i} == p_cfg) || p_cuv0pk0;
+    wire e_cfg     = !f_pv || !rst_n || !p_rst ||
+                     ({cfg_mode_i, cfg_honour_i, cfg_rawedge_i} == p_cfg) || p_cuv0pk0;
     wire e_t_ltct  = !(lt_i && ct_i);
     wire e_t_ltreq = !(baudt && lt_i) || launch_req_o;
     wire e_t_sp0   = !spend_i || (rst_n && (cfg_mode_i == BAUD || cfg_mode_i == PULSE) && !cfg_honour_i);
@@ -278,6 +304,9 @@ module field_props #(
                 env_stf_rst: assume (e_stf_rst);
                 env_stf_rel: assume (e_stf_rel);
                 env_stf:     assume (e_stfchg);
+`ifdef FIELD_ASSUME_H3_OFF
+                env_h3_off:  assume (!cfg_rawedge_i);
+`endif
             end
         end else begin : g_env_assert
             always @* begin
@@ -314,7 +343,7 @@ module field_props #(
                 m_pk_v, m_launch_req, m_fld_next, m_fld_first, m_ot_start, m_ot_raw,
                 m_tx_go, m_tx_bit, m_tx_rel, m_raw_go, m_raw_lvl, m_pin_we,
                 m_crc_en, m_crc_bit, m_stf_valid, m_stf_bit, m_cu_done, m_hold,
-                m_prom, m_tail, m_lstf, m_enter_hold;
+                m_prom, m_tail, m_lstf, m_enter_hold, m_ot_cancel;
     wire [3:0]  m_res_dst, m_dst_busy, m_pin_mask, m_pin_val, m_pin_oe;
     wire [31:0] m_res_data, m_sr;
     wire [15:0] m_res_ts, m_ot_n;
@@ -331,7 +360,8 @@ module field_props #(
         .cmd_data_i(cmd_data_i), .ts_i(ts_i), .cfg_mode_i(cfg_mode_i),
         .lt_i(lt_i), .ct_i(ct_i), .st_i(st_i), .spend_i(spend_i),
         .bt_run_i(bt_run_i), .bt_stop_i(bt_stop_i), .ot_done_i(ot_done_i),
-        .cfg_honour_i(cfg_honour_i), .d16_i(d16_i), .dedge_i(dedge_i),
+        .cfg_honour_i(cfg_honour_i), .cfg_rawedge_i(cfg_rawedge_i),
+        .d16_i(d16_i), .dedge_i(dedge_i),
         .rxb_i(rxb_i), .rxv_i(rxv_i), .stuff_next_i(stuff_next_i),
         .stuff_bit_i(stuff_bit_i), .crc_state_i(crc_state_i), .crc_value_i(crc_value_i),
         .m_park_full(m_park_full), .m_res_valid(m_res_valid), .m_res_dst(m_res_dst),
@@ -344,7 +374,8 @@ module field_props #(
         .m_pin_we(m_pin_we), .m_pin_mask(m_pin_mask), .m_pin_val(m_pin_val),
         .m_pin_oe(m_pin_oe), .m_crc_en(m_crc_en), .m_crc_bit(m_crc_bit),
         .m_stf_valid(m_stf_valid), .m_stf_bit(m_stf_bit), .m_cu_done(m_cu_done),
-        .m_hold(m_hold), .m_prom(m_prom), .m_bc_o(m_bc), .m_tail_o(m_tail),
+        .m_hold(m_hold), .m_ot_cancel(m_ot_cancel),
+        .m_prom(m_prom), .m_bc_o(m_bc), .m_tail_o(m_tail),
         .m_lstf_o(m_lstf), .m_enter_hold(m_enter_hold),
         .m_pk_op_o(m_pk_op), .m_pk_ctl_o(m_pk_ctl), .m_pk_data_o(m_pk_data),
         .m_cu_op_o(m_cu_op), .m_cu_ctl_o(m_cu_ctl), .m_first_o(m_first), .m_eff_o(m_eff),
@@ -379,6 +410,7 @@ module field_props #(
                 a_mdl_stf_valid:  assert (stf_valid_o  == m_stf_valid);
                 a_mdl_cu_done:    assert (cu_done_o    == m_cu_done);
                 a_mdl_hold:       assert (hold_o       == m_hold);
+                a_mdl_ot_cancel:  assert (ot_cancel_o  == m_ot_cancel);
                 if (m_ot_start) begin
                     a_mdl_ot_raw: assert (ot_raw_o == m_ot_raw);
                     a_mdl_ot_n:   assert (ot_n_o   == m_ot_n);
@@ -421,6 +453,7 @@ module field_props #(
                 u_mdl_stf_valid:  assume (stf_valid_o  == m_stf_valid);
                 u_mdl_cu_done:    assume (cu_done_o    == m_cu_done);
                 u_mdl_hold:       assume (hold_o       == m_hold);
+                u_mdl_ot_cancel:  assume (ot_cancel_o  == m_ot_cancel);
                 if (m_ot_start) begin
                     u_mdl_ot_raw: assume (ot_raw_o == m_ot_raw);
                     u_mdl_ot_n:   assume (ot_n_o   == m_ot_n);
@@ -562,6 +595,8 @@ module field_props #(
     wire e_pe = G && e_isPIN && !e_pw &&
                 (e_bmode ? (!bt_run_i || bt_stop_i) : (sc_ctl[15] ? lt_i : 1'b1));
     wire e_re = G && e_isRD && !e_pw && (e_bmode ? (!bt_run_i || bt_stop_i) : 1'b1);
+    // amendment H3: what ends a RAW DRIVE in or after its effect cycle
+    wire e_rend = ot_done_i || (cfg_rawedge_i && dedge_i);
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -751,8 +786,26 @@ module field_props #(
             end
             if (e_isPIN) a_p13_pin_done: `CHK_A (cu_done_o == (G &&
                 ((pin_we_o && (sc_ctl[11:0] == 12'd0 || ot_done_i)) || (e_pw && ot_done_i))));
+            // amendment 2.3: generalised form (cfg_rawedge_i = 0: the
+            // previous statement)
             if (e_isRD)  a_i_rawd_done:  `CHK_A (cu_done_o == (G &&
-                ((raw_go_o && ot_done_i) || (e_pw && ot_done_i))));
+                ((raw_go_o && (ot_done_i || (cfg_rawedge_i && dedge_i))) ||
+                 (e_pw && (ot_done_i || (cfg_rawedge_i && dedge_i))))));
+            // P-H3a: with cfg_rawedge_i = 0 a RAW DRIVE never completes on
+            // dedge_i alone (it completes only in a cycle with ot_done_i)
+            if (e_isRD && !cfg_rawedge_i && cu_done_o) a_h3a_noedge: `CHK_A (ot_done_i);
+            // amendment 2.2 "outputs": the early end (completion by an edge
+            // without ot_done_i) changes no output: no strobe other than the
+            // drive's own effect-cycle request and timer start
+            // (ruling 60: the early end raises ot_cancel_o, see a_h3_cancel)
+            if (e_isRD && cu_done_o && !ot_done_i)
+                a_h3_quiet: `CHK_A (!tx_go_o && !tx_rel_o && !pin_we_o && !crc_en_o &&
+                                    !stf_valid_o && raw_go_o == e_re && ot_start_o == e_re &&
+                                    ot_cancel_o);
+            // ruling 60 / amendment 2.5: ot_cancel_o exactly when a RAW DRIVE
+            // completes and ot_done_i = 0; constant 0 with cfg_rawedge_i = 0
+            a_h3_cancel: `CHK_A (ot_cancel_o == (e_isRD && cu_done_o && !ot_done_i));
+            if (!cfg_rawedge_i) a_h3_cancel_off: `CHK_A (!ot_cancel_o);
             if (e_isRS && !hold_o) a_i_raws_done: `CHK_A (cu_done_o == (G && dedge_i && (!e_needs || e_acc)));
             // ---------------- strobes belong to their op -------------------
             if (tx_go_o || tx_rel_o || crc_en_o || stf_valid_o) a_own_field: `CHK_A (e_isF);
@@ -760,6 +813,7 @@ module field_props #(
             if (tx_rel_o) a_own_rx:  `CHK_A (e_RX);
             if (pin_we_o) a_own_pin: `CHK_A (e_isPIN);
             if (raw_go_o) a_own_raw: `CHK_A (e_isRD);
+            if (ot_cancel_o) a_own_cancel: `CHK_A (e_isRD && cu_done_o);
             // ---------------- (h) abort / halt cycle: no progress ----------
             if (!G) begin
                 a_h_no_strobe: `CHK_A (!strobes && !cu_done_o);
@@ -883,6 +937,11 @@ module field_props #(
                 a_h_halt: `CHK_A (!cu_v_o && !pk_v_o && !hold_o && !res_valid_o &&
                                   sr_o == $past(sr_o) && m_o == $past(m_o));
             end
+            // ---------------- amendment 2.2: no SR change at a RAW DRIVE
+            // completion (field.md 6.2), early end included, unless the
+            // promotion in that cycle loads SR
+            if ($past(e_isRD && cu_done_o && !(x_prom && p_ldsr)))
+                a_h3_sr: `CHK_A (sr_o == $past(sr_o));
             // ---------------- (j) idle stability ---------------------------
             if ($past(!cu_v_o && !pk_v_o && !park_ev)) begin
                 a_j_idle: `CHK_A (!cu_v_o && !pk_v_o && sr_o == $past(sr_o));
@@ -1013,15 +1072,21 @@ module field_props #(
     // bit launched while the last data sample was pending
     logic c_trail, c_rsin, c_rsaft, c_gback, c_xtrail, c_early;
     logic c_rs1;
+    logic c_h3pre;      // RAW DRIVE: an edge (rawedge = 1) before e in BAUD, ignored
+    logic c_h3pin;      // a PIN with wait > 0 promoted at an early end
+    wire  e_h3early = e_isRD && cu_done_o && !ot_done_i;     // early end (edge)
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             c_trail <= 0; c_rsin <= 0; c_rsaft <= 0; c_gback <= 0; c_xtrail <= 0;
-            c_early <= 0; c_rs1 <= 0;
+            c_early <= 0; c_rs1 <= 0; c_h3pre <= 0; c_h3pin <= 0;
         end else if (x_prom) begin
             c_trail <= 0; c_rsin <= 0; c_rsaft <= 0; c_gback <= 0; c_xtrail <= 0;
-            c_early <= 0;
+            c_early <= 0; c_h3pre <= 0;
             c_rs1 <= e_isRS && cu_done_o;
+            c_h3pin <= e_h3early && sp_op == OP_PIN && sp_ctl[11:0] != 12'd0;
         end else begin
+            if (G && e_isRD && !e_pw && !e_re && cfg_mode_i == BAUD && cfg_rawedge_i && dedge_i)
+                c_h3pre <= 1;
             if (tx_go_o && e_stuffL && e_dl == e_n) c_trail <= 1;
             if (e_rstuff && e_ds < e_n)  c_rsin <= 1;
             if (e_rstuff && e_ds == e_n) c_rsaft <= 1;
@@ -1178,6 +1243,27 @@ module field_props #(
                     c_pin_baud:      cover (pin_we_o && cfg_mode_i == BAUD && bt_stop_i);
                     c_raw_drive:     cover (e_isRD && cu_done_o && !raw_go_o);
                     c_raws_b2b:      cover (e_isRS && cu_done_o && c_rs1);
+                    // amendment 2.3 covers (H3, edge-terminated RAW DRIVE)
+                    c_h3_edge_e:     cover (e_isRD && raw_go_o && cu_done_o && cfg_rawedge_i &&
+                                            dedge_i && !ot_done_i);
+                    c_h3_edge_aft:   cover (e_isRD && !raw_go_o && cu_done_o && cfg_rawedge_i &&
+                                            dedge_i && !ot_done_i);
+                    c_h3_timer:      cover (e_isRD && !raw_go_o && cu_done_o && cfg_rawedge_i &&
+                                            ot_done_i && !dedge_i);
+                    c_h3_pre_baud:   cover (e_isRD && cu_done_o && c_h3pre);
+                    c_h3_pin_after:  cover (e_isPIN && pin_we_o && ot_start_o && c_h3pin);
+                    c_h3a_ignored:   cover (G && e_isRD && e_pw && !cfg_rawedge_i && dedge_i &&
+                                            !ot_done_i && !cu_done_o);
+                    c_h3_early_prom: cover (e_h3early && x_prom && sp_op == OP_FIELD);
+                    // ruling 60 (amendment 2.5): cancel in the effect cycle
+                    // (with the timer start), cancel later, the N = 1 case
+                    // where the timer wins over an edge in e (no cancel), a
+                    // PIN with wait > 0 directly after a cancelled drive
+                    c_oc_e:          cover (ot_cancel_o && raw_go_o && ot_start_o);
+                    c_oc_later:      cover (ot_cancel_o && !raw_go_o);
+                    c_oc_timer_wins: cover (e_isRD && raw_go_o && cu_done_o && ot_done_i && dedge_i &&
+                                            cfg_rawedge_i && !ot_cancel_o);
+                    c_oc_pin_after:  cover (e_isPIN && cu_done_o && !pin_we_o && c_h3pin);
                     // BAUD sample giving back a launch
                     c_gback_cov:     cover (cdF && c_gback);
                     // the spec-defect corner (e_chk): a transmitting field
@@ -1195,6 +1281,7 @@ module field_props #(
                     c_env_spend_dn:  cover (!spend_i && $past(spend_i && st_i));
                     c_env_stf_chg:   cover (stuff_next_i != $past(stuff_next_i) && $past(stf_valid_o));
                     c_env_cfg_chg:   cover ($past(rst_n) && cfg_mode_i != $past(cfg_mode_i));
+                    c_env_rawedge:   cover ($past(rst_n) && cfg_rawedge_i != $past(cfg_rawedge_i));
                     c_env_halt:      cover (!run_i && $past(cu_v_o));
                     c_env_lt_baud:   cover (lt_i && cfg_mode_i == BAUD);
                 end

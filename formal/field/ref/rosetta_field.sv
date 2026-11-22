@@ -33,6 +33,28 @@
 //    MUT_GBACK_NONE     BAUD receive never gives a launch back
 //    MUT_PIN_TWICE      a PIN with wait takes effect again (eff not set)
 //    MUT_TAIL_DATA      a sample in the tail cycle is taken as data
+//  Amendment H3 (cfg_rawedge_i = CODE[12]; a RAW DRIVE completes in the
+//  first cycle c >= e with G && (ot_done_i || (cfg_rawedge_i && dedge_i))):
+//    MUT_H3_NOBIT       early end on an edge also without cfg_rawedge_i
+//    MUT_H3_PRE_E       an edge BEFORE the effect cycle (while waiting for
+//                       the BAUD timer) is remembered and ends the drive at e
+//    MUT_H3_PRE_NOW     an edge before e ends the drive at once (no effect)
+//    MUT_H3_NOEND       no early end with the bit set (old behaviour)
+//    MUT_H3_PIN         a PIN with wait > 0 also ends early on an edge
+//    MUT_H3_OUTCHG      the early end re-drives out0 released (raw_go with
+//                       level 1)
+//    MUT_H3_OTSTART     the early end raises ot_start (tries to cancel the
+//                       timer)
+//    MUT_H3_SRCHG       the early end writes the edge interval into SR
+//  Ruling 60 / amendment 2.5 (ot_cancel_o = a RAW DRIVE completes and
+//  ot_done_i = 0):
+//    MUT_OC_NONE        no cancel at an early end
+//    MUT_OC_TIMER       cancel also when the timer completes the drive
+//    MUT_OC_PIN         cancel also for a PIN completing without ot_done_i
+//    MUT_OC_NOCOMPL     cancel also on an edge while the drive waits for its
+//                       effect cycle (no completion)
+//    MUT_OC_NOBIT       cancel on an edge after e even with cfg_rawedge_i = 0
+//    MUT_OC_ABORT       cancel not gated by G (raised in an abort cycle)
 // ===========================================================================
 module rosetta_field (
     input  wire        clk,
@@ -56,6 +78,7 @@ module rosetta_field (
     input  wire        bt_stop_i,
     input  wire        ot_done_i,
     input  wire        cfg_honour_i,
+    input  wire        cfg_rawedge_i,
     input  wire [15:0] d16_i,
     input  wire        dedge_i,
     input  wire        rxb_i,
@@ -97,7 +120,8 @@ module rosetta_field (
     output logic        stf_valid_o,
     output logic        stf_bit_o,
     output logic        cu_done_o,
-    output logic        hold_o
+    output logic        hold_o,
+    output logic        ot_cancel_o
 );
 // ===========================================================================
 //  Helper functions (docs/blocks/field.md 1, 2.1, 5.4).
@@ -345,6 +369,33 @@ endfunction
     wire bmode = (cfg_mode_i == BAUD) || (cfg_mode_i == PULSE);
     wire pe = G && isPIN && !eff && (bmode ? (!bt_run_i || bt_stop_i) : (palign ? lt_i : 1'b1));
     wire re = G && isRAW && raw_drv && !eff && (bmode ? (!bt_run_i || bt_stop_i) : 1'b1);
+    // amendment H3: end condition of a RAW DRIVE in or after e
+`ifdef MUT_H3_NOBIT
+    wire rend = ot_done_i || dedge_i;
+`elsif MUT_H3_NOEND
+    wire rend = ot_done_i;
+`else
+    wire rend = ot_done_i || (cfg_rawedge_i && dedge_i);
+`endif
+    wire rd_wait  = G && isRAW && raw_drv && !eff && !re;       // before e
+    wire rd_early = G && isRAW && raw_drv && eff && cfg_rawedge_i && dedge_i && !ot_done_i;
+`ifdef MUT_H3_PRE_E
+    logic pre_edge;
+    always_ff @(posedge clk or negedge rst_n)
+        if (!rst_n)                        pre_edge <= 1'b0;
+        else if (!run_i || abort_i || !isRAW || eff) pre_edge <= 1'b0;
+        else if (rd_wait && cfg_rawedge_i && dedge_i) pre_edge <= 1'b1;
+    wire rd_pre = re && pre_edge;
+`elsif MUT_H3_PRE_NOW
+    wire rd_pre = rd_wait && cfg_rawedge_i && dedge_i;
+`else
+    wire rd_pre = 1'b0;
+`endif
+`ifdef MUT_H3_PIN
+    wire pin_early = cfg_rawedge_i && dedge_i;
+`else
+    wire pin_early = 1'b0;
+`endif
 
     // ---------------- 6.1 completion ----------------
     logic fin;
@@ -366,9 +417,9 @@ endfunction
                 end
             endcase
         end else if (isPIN) begin
-            fin = (pe && (pwait == 12'd0 || ot_done_i)) || (G && eff && ot_done_i);
+            fin = (pe && (pwait == 12'd0 || ot_done_i)) || (G && eff && (ot_done_i || pin_early));
         end else if (isRAW && raw_drv) begin
-            fin = (re && ot_done_i) || (G && eff && ot_done_i);
+            fin = (re && rend) || (G && eff && rend) || rd_pre;
         end else if (isRAW && !raw_drv && !hold) begin
             fin = G && dedge_i;
         end
@@ -411,7 +462,11 @@ endfunction
     wire [27:0] q_ctl  = byp ? park_ctl_i  : pk_ctl;
     wire [31:0] q_data = byp ? park_data_i : pk_data;
 
+`ifdef MUT_H3_SRCHG
+    wire [31:0] sr_c = setV ? V : (rd_early ? {16'h0, d16_i} : sr_upd);
+`else
     wire [31:0] sr_c = setV ? V : sr_upd;
+`endif
     wire [31:0] sr_n = prom ? f_load(q_op, q_ctl, q_data, crc_value_i, sr, sr_c) : sr_c;
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -532,14 +587,23 @@ endfunction
         fld_next_o   = pk_v && (pk_op == OP_FIELD) && f_bt(cfg_mode_i, pk_ctl) &&
                        (!cu_v || (cu_op == OP_FIELD && !launch_req_o));
         fld_first_o  = first && cu_v && (cu_op == OP_FIELD);
+`ifdef MUT_H3_OTSTART
+        ot_start_o   = (pe && pwait != 12'd0) || re || rd_early;
+`else
         ot_start_o   = (pe && pwait != 12'd0) || re;
+`endif
         ot_raw_o     = re;
         ot_n_o       = re ? sr[15:0] : {4'h0, pwait};
         tx_go_o      = LE;
         tx_bit_o     = x;
         tx_rel_o     = relE;
+`ifdef MUT_H3_OUTCHG
+        raw_go_o     = re || rd_early;
+        raw_lvl_o    = rd_early ? 1'b1 : cu_ctl[26];
+`else
         raw_go_o     = re;
         raw_lvl_o    = cu_ctl[26];
+`endif
         pin_we_o     = pe;
         pin_mask_o   = cu_ctl[27:24];
         pin_val_o    = cu_ctl[23:20];
@@ -555,6 +619,26 @@ endfunction
         stf_valid_o  = (LE && stx) || rstuff || (rdata && srx);
         stf_bit_o    = LE ? x : rxb_i;
         cu_done_o    = done;
+        // ruling 60 / amendment 2.5
+`ifdef MUT_OC_NONE
+        ot_cancel_o  = 1'b0;
+`elsif MUT_OC_TIMER
+        ot_cancel_o  = done && isRAW && raw_drv;
+`elsif MUT_OC_PIN
+        ot_cancel_o  = done && (isPIN || (isRAW && raw_drv)) && !ot_done_i;
+`elsif MUT_OC_NOCOMPL
+        ot_cancel_o  = (done && isRAW && raw_drv && !ot_done_i) ||
+                       (rd_wait && cfg_rawedge_i && dedge_i);
+`elsif MUT_OC_NOBIT
+        ot_cancel_o  = (done && isRAW && raw_drv && !ot_done_i) ||
+                       (G && isRAW && raw_drv && eff && dedge_i && !ot_done_i);
+`elsif MUT_OC_ABORT
+        ot_cancel_o  = (done && isRAW && raw_drv && !ot_done_i) ||
+                       (run_i && abort_i && isRAW && raw_drv && eff && cfg_rawedge_i && dedge_i &&
+                        !ot_done_i);
+`else
+        ot_cancel_o  = done && isRAW && raw_drv && !ot_done_i;
+`endif
         dst_busy_o   = (cu_v ? f_rbit(f_dst(cu_op, cu_ctl)) : 4'h0) |
                        (pk_v ? f_rbit(f_dst(pk_op, pk_ctl)) : 4'h0) |
                        (res_v ? f_rbit(res_dst) : 4'h0);

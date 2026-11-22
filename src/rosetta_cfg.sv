@@ -18,7 +18,11 @@
 // cfg_reg_i, cfg_hi_i and run_i in the write cycle. The second CRC init
 // (crcw_q, 5.3) is a top-level flop (lane.md 3), not part of this module.
 //
-// 198 flops.
+// TICK[15:14] (rone, rsp2) and CODE[12] (rawedge) are stored per
+// amendment-eth-can.md section 0 (ruling 59). TICK[13] (mdpll, H1) is on
+// hold: not stored, tick_o[13] is the constant 0.
+//
+// 201 flops.
 module rosetta_cfg (
     input  wire         clk, rst_n,
     input  wire         run_i,
@@ -27,12 +31,12 @@ module rosetta_cfg (
     input  wire         cfg_hi_i,
     input  wire  [15:0] cfg_data_i,
     // Stored registers (lane.md table 5.1).
-    output logic [12:0] tick_o,         // 0  TICK[12:0]
+    output logic [15:0] tick_o,         // 0  TICK[15:14], [12:0]; [13] reads 0
     output logic [15:0] period_o,       // 1  PERIOD
     output logic [15:0] period2_o,      // 2  PERIOD2
     output logic [7:0]  thr0_o,         // 3  THR01[7:0] = THR0
     output logic [7:0]  dly_o,          // 4  THR2L[15:8] = launch delay
-    output logic [11:0] code_o,         // 5  CODE[11:0]
+    output logic [12:0] code_o,         // 5  CODE[12:0]
     output logic [15:0] pulse_o,        // 6  PULSE
     output logic [5:0]  stuff_o,        // 7  STUFF[5:0]
     output logic [31:0] crcpoly_o,      // 8  CRCPOLY
@@ -47,6 +51,10 @@ module rosetta_cfg (
 );
   logic        we, wlo;
   logic [13:0] sel;                     // one-hot register select, low write
+  logic [12:0] tick_lo;                 // TICK[12:0]
+  logic [1:0]  tick_hi;                 // TICK[15:14]
+
+  assign tick_o = {tick_hi, 1'b0, tick_lo};
 
   assign we  = run_i && cfg_we_i;
   assign wlo = we && !cfg_hi_i;
@@ -63,16 +71,19 @@ module rosetta_cfg (
 
   always_ff @(posedge clk or negedge rst_n)
     if (!rst_n) begin
-      tick_o <= '0; period_o <= '0; period2_o <= '0; thr0_o <= '0; dly_o <= '0;
+      tick_lo <= '0; tick_hi <= '0; period_o <= '0; period2_o <= '0; thr0_o <= '0; dly_o <= '0;
       code_o <= '0; pulse_o <= '0; stuff_o <= '0; crcpoly_o <= '0; crccfg_o <= '0;
       evc_o <= '0;
     end else begin
-      if (sel[0])  tick_o    <= cfg_data_i[12:0];
+      if (sel[0])  begin
+                   tick_lo   <= cfg_data_i[12:0];
+                   tick_hi   <= cfg_data_i[15:14];
+      end
       if (sel[1])  period_o  <= cfg_data_i;
       if (sel[2])  period2_o <= cfg_data_i;
       if (sel[3])  thr0_o    <= cfg_data_i[7:0];
       if (sel[4])  dly_o     <= cfg_data_i[15:8];
-      if (sel[5])  code_o    <= cfg_data_i[11:0];
+      if (sel[5])  code_o    <= cfg_data_i[12:0];
       if (sel[6])  pulse_o   <= cfg_data_i;
       if (sel[7])  stuff_o   <= cfg_data_i[5:0];
       if (sel[8])  crcpoly_o[15:0]  <= cfg_data_i;

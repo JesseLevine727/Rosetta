@@ -349,6 +349,9 @@ MODE_REGS: list[ModeReg] = [
         B("rest", 10, 10),
         B("stretch_honour", 11, 11),
         B("stretch_hold", 12, 12),
+        # Bit 13 is reserved (not stored, reads 0). Ruling 59, amendment-eth-can.md:
+        B("rone", 14, 14),                    # RECOVER: only edges to level !capture restart the timer
+        B("rsp2", 15, 15),                    # RECOVER: capture PERIOD2 after the launch tick
     )),
     ModeReg(1, "PERIOD", 16, (B("value", 15, 0),)),
     ModeReg(2, "PERIOD2", 16, (B("value", 15, 0),)),
@@ -365,6 +368,7 @@ MODE_REGS: list[ModeReg] = [
         B("diff_in", 9, 9),
         B("delay_clock", 10, 10),
         B("delay_prescaled", 11, 11),
+        B("rawedge", 12, 12),                 # a RAW DRIVE also ends at the first data edge (ruling 59)
     )),
     ModeReg(6, "PULSE", 16, (B("high0", 7, 0), B("high1", 15, 8))),
     ModeReg(7, "STUFF", 16, (

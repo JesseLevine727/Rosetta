@@ -55,10 +55,10 @@ module rosetta_lane #(
   logic       crcw_q;
 
   // ---- Mode registers and write pulses (u_cfg) --------------------------
-  logic [12:0] r_tick;
+  logic [15:0] r_tick;                 // [13] reads 0 (H1 on hold)
   logic [15:0] r_period, r_period2, r_pulse;
   logic [7:0]  r_thr0, r_dly;
-  logic [11:0] r_code;
+  logic [12:0] r_code;
   logic [5:0]  r_stuff;
   logic [31:0] r_crcpoly;
   logic [6:0]  r_crccfg;
@@ -69,7 +69,7 @@ module rosetta_lane #(
   // ---- Internal interfaces (lane.md 6) ----------------------------------
   // 6.1 field -> tick
   logic        cu_v, cu_fld, cu_tx, cu_smp, pk_v;
-  logic        launch_req, fld_next, fld_first, ot_start, ot_raw;
+  logic        launch_req, fld_next, fld_first, ot_start, ot_raw, ot_cancel;
   logic [15:0] ot_n;
   // 6.2 tick -> field
   logic        lt, ct, st, spend, bt_run, bt_stop, ot_done;
@@ -114,6 +114,7 @@ module rosetta_lane #(
     .cfg_capfall_i(r_tick[6]), .cfg_clkout_i(r_tick[7]), .cfg_idle_i(r_tick[8]),
     .cfg_clkod_i(r_tick[9]), .cfg_rest_i(r_tick[10]), .cfg_honour_i(r_tick[11]),
     .cfg_hold_i(r_tick[12]),
+    .cfg_rone_i(r_tick[14]), .cfg_rsp2_i(r_tick[15]),
     .cfg_period_i(r_period), .cfg_period2_i(r_period2),
     .cfg_thr0_i(r_thr0), .cfg_pw0_i(r_pulse[7:0]), .cfg_pw1_i(r_pulse[15:8]),
     .cfg_dlyclk_i(r_code[10]), .cfg_dly_i(r_dly),
@@ -123,6 +124,7 @@ module rosetta_lane #(
     .launch_req_i(launch_req), .fld_next_i(fld_next), .fld_first_i(fld_first),
     .data_wait_i(data_wait_i),
     .ot_start_i(ot_start), .ot_raw_i(ot_raw), .ot_n_i(ot_n),
+    .ot_cancel_i(ot_cancel),
     .dcap_i(dcap),
     .pt_o(pt), .lt_o(lt), .ct_o(ct), .st_o(st), .cte_o(cte), .hte_o(hte),
     .spend_o(spend), .bt_run_o(bt_run), .bt_stop_o(bt_stop), .ot_done_o(ot_done),
@@ -175,6 +177,7 @@ module rosetta_lane #(
     .lt_i(lt), .ct_i(ct), .st_i(st), .spend_i(spend), .bt_run_i(bt_run),
     .bt_stop_i(bt_stop), .ot_done_i(ot_done),
     .cfg_honour_i(r_tick[11]),
+    .cfg_rawedge_i(r_code[12]),
     .d16_i(d16),
     .dedge_i(dedge), .rxb_i(rxb), .rxv_i(rxv),
     .stuff_next_i(stuff_next), .stuff_bit_i(stuff_bit),
@@ -185,7 +188,7 @@ module rosetta_lane #(
     .cu_v_o(cu_v), .cu_fld_o(cu_fld), .cu_tx_o(cu_tx), .cu_smp_o(cu_smp),
     .pk_v_o(pk_v),
     .launch_req_o(launch_req), .fld_next_o(fld_next), .fld_first_o(fld_first),
-    .ot_start_o(ot_start), .ot_raw_o(ot_raw), .ot_n_o(ot_n),
+    .ot_start_o(ot_start), .ot_raw_o(ot_raw), .ot_cancel_o(ot_cancel), .ot_n_o(ot_n),
     .tx_go_o(tx_go), .tx_bit_o(tx_bit), .tx_rel_o(tx_rel),
     .raw_go_o(raw_go), .raw_lvl_o(raw_lvl),
     .pin_we_o(pin_we), .pin_mask_o(pin_mask), .pin_val_o(pin_val), .pin_oe_o(pin_oe),
@@ -246,5 +249,6 @@ module rosetta_lane #(
 
   // Observation outputs kept for hierarchical reference by the lane proof.
   logic unused_ok;
-  assign unused_ok = &{1'b0, obs_cu_done, obs_hold, obs_stretch, obs_fire};
+  assign unused_ok = &{1'b0, obs_cu_done, obs_hold, obs_stretch, obs_fire,
+                       r_tick[13]};             // TICK[13] (H1 mdpll) on hold: constant 0
 endmodule

@@ -3,8 +3,11 @@
 
 The lane checker observes the ports of the nine sub-block instances of the
 design by their lane.md section 3 instance names (u_cfg, u_tick, ...). The
-port lists are read from the proven sub-block sources in src/ (given
-components; the lane RTL is NOT read). Outputs, both committed:
+port lists are read from the sub-block sources of the pinned revision
+BASE_REV (git show; pre-amendment sources) and then changed by AMEND, the
+interface delta of the H3/H4 amendment (amendment-eth-can.md 0, 2, 3, as
+stated by the coordinator); the amended RTL in src/ is not read. Outputs,
+all committed:
 
   lane_wb.svh   `define LANE_WBW and, for use inside lane_props, one named
                 wire per observed port: w_<inst>_<port> = wb[off +: width]
@@ -18,7 +21,7 @@ lemmas (l_* in lane_props.sv).
 
 Usage: python3 gen_wb.py   (run from formal/lane/)
 """
-import re, os
+import re, os, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', '..', 'src')
@@ -51,12 +54,23 @@ EXTRA = [
     ('u_crc',   's', 32),
 ]
 
+# Pre-amendment sources (port lists only) and the amendment's interface delta
+BASE_REV = '3937e06'
+AMEND = {  # module: {port: width} (new or widened ports)
+    'rosetta_cfg':   {'tick_o': 16, 'code_o': 13},          # TICK[15:0] (bit 13 = 0), CODE[12:0]
+    'rosetta_tick':  {'cfg_rone_i': 1, 'cfg_rsp2_i': 1,     # TICK[14], TICK[15] (H4)
+                      'ot_cancel_i': 1},                    # timer cancel (2.5, ruling 60)
+    'rosetta_field': {'cfg_rawedge_i': 1,                   # CODE[12] (H3)
+                      'ot_cancel_o': 1},                    # early-end cancel (2.5, ruling 60)
+}
+
 # (bus name in lane_fv, DUT instance path)
 BUSES = [('wb_dut', 'u_dut'), ('wb_r53', 'u_r53')]
 
 
 def ports(mod):
-    txt = open(os.path.join(SRC, mod + '.sv')).read()
+    txt = subprocess.run(['git', 'show', '%s:src/%s.sv' % (BASE_REV, mod)], cwd=HERE,
+                         check=True, capture_output=True, text=True).stdout
     m = re.search(r'module\s+' + mod + r'\b.*?\((.*?)\);', txt, re.S)
     hdr = m.group(1)
     # drop parameter block if present: the port list follows "#( ... ) ("
@@ -77,6 +91,9 @@ def ports(mod):
         else:
             name = d.split()[-1]
         out.append((name, width))
+    delta = dict(AMEND.get(mod, {}))
+    out = [(n, delta.pop(n, w)) for n, w in out]
+    out += sorted(delta.items())
     return out
 
 

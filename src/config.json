@@ -84,12 +84,9 @@
   "FP_MACRO_HORIZONTAL_HALO": 2.0,
   "FP_MACRO_VERTICAL_HALO": 0.48,
   "ROUTING_OBSTRUCTIONS": [
-    "Metal2 812.64 3.78 1229.28 192.5",
-    "Metal3 812.64 3.78 1229.28 192.5",
-    "Metal4 812.64 3.78 1229.28 192.5",
-    "Metal2 1262.24 3.78 1678.88 192.5",
-    "Metal3 1262.24 3.78 1678.88 192.5",
-    "Metal4 1262.24 3.78 1678.88 192.5"
+    "Metal2 812.64 0 1724.16 192.5",
+    "Metal3 812.64 0 1724.16 192.5",
+    "Metal4 812.64 0 1724.16 192.5"
   ],
   "RUN_MAGIC_DRC": 0,
   "ERROR_ON_ILLEGAL_OVERLAPS": 0,
@@ -132,5 +129,11 @@
     ]
   ],
   "SIGNOFF_SDC_FILE": "dir::signoff.sdc",
-  "PL_RESIZER_ALLOW_SETUP_VIOS": true
+  "PL_RESIZER_ALLOW_SETUP_VIOS": true,
+  "//layout": "Recipe v2 (PLAN.md, 21-22 Nov): the whole lower-right corner (both SRAMs, the strip under them, the gap and the right-hand strip) is closed to routing as one block; the global router is told 20 % of capacity is held back instead of 30 %, because it costs a blocked area like a merely full one and otherwise plans routes through the memories.",
+  "GRT_ADJUSTMENT": 0.2,
+  "GRT_OVERFLOW_ITERS": 150,
+  "VERILOG_DEFINES": [
+    "ROSETTA_MEMBUF"
+  ]
 }

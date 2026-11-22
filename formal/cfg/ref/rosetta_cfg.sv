@@ -35,6 +35,17 @@
 //    MUT_PULSE_NORUN    wr_evc not gated by run_i
 //    MUT_PULSE_ALIAS    pulses decode cfg_reg_i[3:0] only (16 raises wr_tick)
 //    MUT_PULSE_MISSING  wr_crc never raised for CRCCFG
+//  Amendment H3/H4 (TICK[15:14], CODE[12] stored; TICK[13] never stored):
+//    MUT_T14_NOSTORE    TICK[14] (rone) not stored, reads 0
+//    MUT_T15_NOSTORE    TICK[15] (rsp2) not stored, reads 0
+//    MUT_T13_STORED     TICK[13] stored like the other bits
+//    MUT_C12_NOSTORE    CODE[12] (rawedge) not stored, reads 0
+//    MUT_T14_DBIT       TICK[14] taken from cfg_data_i[13]
+//    MUT_T1415_SWAP     TICK[15] and TICK[14] taken from each other's bit
+//    MUT_C12_DBIT       CODE[12] taken from cfg_data_i[13]
+//    MUT_C12_TICKREG    CODE[12] loaded by a write to TICK (register 0)
+//    MUT_T15_NORST      TICK[15:14] flops have no reset
+//    MUT_C12_NORST      CODE[12] flop has no reset
 // ===========================================================================
 module rosetta_cfg (
     input  wire         clk, rst_n,
@@ -43,12 +54,12 @@ module rosetta_cfg (
     input  wire  [4:0]  cfg_reg_i,
     input  wire         cfg_hi_i,
     input  wire  [15:0] cfg_data_i,
-    output logic [12:0] tick_o,
+    output logic [15:0] tick_o,
     output logic [15:0] period_o,
     output logic [15:0] period2_o,
     output logic [7:0]  thr0_o,
     output logic [7:0]  dly_o,
-    output logic [11:0] code_o,
+    output logic [12:0] code_o,
     output logic [15:0] pulse_o,
     output logic [5:0]  stuff_o,
     output logic [31:0] crcpoly_o,
@@ -98,6 +109,7 @@ module rosetta_cfg (
 
     // ------------------------------------------------------------ registers
     logic [12:0] tick_q;
+    logic [11:0] code_q;
     logic [15:0] p2_pend_d;
     logic        p2_pend_v;
     always_ff @(posedge clk or negedge rst_n) begin
@@ -111,7 +123,7 @@ module rosetta_cfg (
             period2_o <= '0;
             thr0_o    <= '0;
             dly_o     <= '0;
-            code_o    <= '0;
+            code_q    <= '0;
             pulse_o   <= '0;
             crcpoly_o <= '0;
             evc_o     <= '0;
@@ -134,9 +146,9 @@ module rosetta_cfg (
             if (wlo[4]) dly_o  <= cfg_data_i[15:8];
 `endif
 `ifdef MUT_CODE_BITS
-            if (wlo[5]) code_o <= {cfg_data_i[10], cfg_data_i[11], cfg_data_i[9:0]};
+            if (wlo[5]) code_q <= {cfg_data_i[10], cfg_data_i[11], cfg_data_i[9:0]};
 `else
-            if (wlo[5]) code_o <= cfg_data_i[11:0];
+            if (wlo[5]) code_q <= cfg_data_i[11:0];
 `endif
 `ifdef MUT_NO_WE
             if (run_i && !cfg_hi_i && rn == 5'd6) pulse_o <= cfg_data_i;
@@ -155,10 +167,76 @@ module rosetta_cfg (
         end
     end
 
-`ifdef MUT_COMB_READ
-    assign tick_o = wlo[0] ? cfg_data_i[12:0] : tick_q;
+    // ---- amendment H3/H4: TICK[15:14] (rone, rsp2), CODE[12] (rawedge);
+    //      TICK[13] (H1, on hold) is not stored and reads 0
+    logic [1:0] t1514_q;
+    logic       c12_q, t13_q;
+`ifdef MUT_T14_DBIT
+    wire  [1:0] t1514_d = {cfg_data_i[15], cfg_data_i[13]};
+`elsif MUT_T1415_SWAP
+    wire  [1:0] t1514_d = {cfg_data_i[14], cfg_data_i[15]};
 `else
-    assign tick_o = tick_q;
+    wire  [1:0] t1514_d = cfg_data_i[15:14];
+`endif
+`ifdef MUT_C12_DBIT
+    wire        c12_d   = cfg_data_i[13];
+`else
+    wire        c12_d   = cfg_data_i[12];
+`endif
+`ifdef MUT_C12_TICKREG
+    wire        c12_we  = wlo[0];
+`else
+    wire        c12_we  = wlo[5];
+`endif
+`ifdef MUT_T15_NORST
+    always_ff @(posedge clk) begin
+        if (wlo[0]) t1514_q <= t1514_d;
+    end
+`else
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)      t1514_q <= 2'b00;
+        else if (wlo[0]) t1514_q <= t1514_d;
+    end
+`endif
+`ifdef MUT_C12_NORST
+    always_ff @(posedge clk) begin
+        if (c12_we) c12_q <= c12_d;
+    end
+`else
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)      c12_q <= 1'b0;
+        else if (c12_we) c12_q <= c12_d;
+    end
+`endif
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)      t13_q <= 1'b0;
+        else if (wlo[0]) t13_q <= cfg_data_i[13];
+    end
+`ifdef MUT_T13_STORED
+    wire        t13_o = t13_q;
+`else
+    wire        t13_o = 1'b0;
+`endif
+`ifdef MUT_T14_NOSTORE
+    wire        t14_o = 1'b0;
+`else
+    wire        t14_o = t1514_q[0];
+`endif
+`ifdef MUT_T15_NOSTORE
+    wire        t15_o = 1'b0;
+`else
+    wire        t15_o = t1514_q[1];
+`endif
+`ifdef MUT_C12_NOSTORE
+    assign code_o = {1'b0, code_q};
+`else
+    assign code_o = {c12_q, code_q};
+`endif
+
+`ifdef MUT_COMB_READ
+    assign tick_o = {t15_o, t14_o, t13_o, wlo[0] ? cfg_data_i[12:0] : tick_q};
+`else
+    assign tick_o = {t15_o, t14_o, t13_o, tick_q};
 `endif
 
 `ifdef MUT_SYNC_RST

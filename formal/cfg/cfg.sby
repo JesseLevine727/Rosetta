@@ -1,5 +1,7 @@
 # ============================================================================
-#  SymbiYosys job for rosetta_cfg (lane.md section 5 + decisions.md).
+#  SymbiYosys job for rosetta_cfg (lane.md section 5 + decisions.md, with
+#  amendment-eth-can.md H3/H4: TICK[15:14] and CODE[12] stored, 201 bits;
+#  TICK[13] never stored, tick_o[13] = 0 in every cycle (H1 on hold)).
 #  Run from formal/cfg/, with run directories kept out of the tree:
 #      sby -f cfg.sby -d ref/build/cfg_prove prove   (prove | bmc | cover)
 #

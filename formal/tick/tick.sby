@@ -1,5 +1,8 @@
 # ============================================================================
-#  SymbiYosys job for rosetta_tick (tick.md sections 1-8, 10, 11).
+#  SymbiYosys job for rosetta_tick (tick.md sections 1-8, 10, 11, as amended
+#  by amendment-eth-can.md H4: RECOVER options cfg_rone_i / cfg_rsp2_i, free
+#  inputs under the TICK-field rule env_cfg_t; H1 on hold, not modelled;
+#  ruling 60 / amendment 2.5: ot_cancel_i stops the operation timer, free).
 #      cd formal/tick && sby -f tick.sby [prove|bmc|cover]
 #  Keep run directories out of the tree, e.g.
 #      sby -f -d ref/build/tick_prove tick.sby prove
@@ -32,14 +35,18 @@ tick_fv.sv
 #         Property 14 is proved in its cycle-aligned form (a_p14_once); the
 #         look-ahead form (a_p14_done/none, independent of the spec
 #         prescaler) is checked by bmc only (TICK_NO_P14_LOOKAHEAD in prove).
-#         The scripted 11.1/11.2 instances and the free-initial-state edge
+#         The new inputs cfg_rone_i / cfg_rsp2_i are free in every task
+#         (prove included: group 11r and the H4 model rules are proved for
+#         PERIOD, PERIOD2 0..7, i.e. PERIOD2 below, at and above Pr).
+#         The scripted 11.1/11.2/3.4 instances and the free-initial-state edge
 #         counter instance are left out of prove (FV_NO_WORKED, FV_NO_FI):
 #         the scripted ones are deterministic and end in a quiescent state
 #         by cycle 25 (< bmc depth), and the free-init one checks a one-step
 #         property from every state, so bmc covers both completely.
 #  bmc    every instance, full parameter range (TICK_PBITS = TICK_OBITS =
 #         16), depth 32. Depth argument: the 11.1 table ends at k = 25
-#         (cycle 22 + reset + margin) and 11.2 at k = 15; a BAUD bit at
+#         (cycle 22 + reset + margin), 11.2 at k = 15 and the scaled
+#         amendment 3.4 table (tick_worked_rec) at k = 29; a BAUD bit at
 #         Pd = P2d = 13 with its 4-cycle sample and a hold fits in 32; every
 #         window property spans at most 5 cycles (rsh/ssh, $past); the free-
 #         init instance starts in any state, so step 1 already checks every

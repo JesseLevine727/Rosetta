@@ -7,6 +7,12 @@
 //  plausible integration bug, one per define) must fail at least one of
 //  prove / bmc. Run with ref/run_mutants.sh.
 //
+//  Amendment H3/H4 (ruling 59, H1 on hold): TICK[15:0] (bit 13 reads 0),
+//  CODE[12:0], u_tick.cfg_rone_i/cfg_rsp2_i = TICK[14]/[15], u_field.
+//  cfg_rawedge_i = CODE[12]; mutants MUT_H4_*, MUT_H3_BIT, MUT_DLINE_INV,
+//  MUT_FDEDGE_RAW. Amendment 2.5 (ruling 60): u_field.ot_cancel_o ->
+//  u_tick.ot_cancel_i; mutants MUT_CANCEL_OPEN / _CUDONE / _LATE.
+//
 //  Instance names are those of lane.md section 3 (u_cfg, u_tick, u_dly,
 //  u_code, u_field, u_crc, u_stuff, u_evt, u_pins); layer W of the checker
 //  observes their ports by these names.
@@ -47,8 +53,8 @@ module rosetta_lane #(
     output logic [3:0]  out_oe_o
 );
     // ---------------------------------------------------------------- u_cfg
-    wire [12:0] r_tick;  wire [15:0] r_period, r_period2, r_pulse;
-    wire [7:0]  r_thr0, r_dly;  wire [11:0] r_code;  wire [5:0] r_stuff;
+    wire [15:0] r_tick;  /* TICK[15:0], bit 13 reads 0 */  wire [15:0] r_period, r_period2, r_pulse;
+    wire [7:0]  r_thr0, r_dly;  wire [12:0] r_code;  /* CODE[12:0] */  wire [5:0] r_stuff;
     wire [31:0] r_crcpoly;  wire [6:0] r_crccfg;  wire [63:0] r_evc;
     wire        wr_tick, wr_code, wr_stuff, wr_crc;  wire [3:0] wr_evc;
     rosetta_cfg u_cfg (
@@ -71,6 +77,7 @@ module rosetta_lane #(
     wire        tx_go, tx_bit, tx_rel, raw_go, raw_lvl, pin_we;
     wire [3:0]  pin_mask, pin_val, pin_oe;
     wire        crc_en, crc_bit, stf_valid, stf_bit, cu_done, hold;
+    wire        ot_cancel;                   // amendment 2.5 (ruling 60)
     wire [31:0] crc_state, crc_value;
     wire        stuff_next, stuff_bit, stuff_viol;
     wire [3:0]  fire;
@@ -83,10 +90,11 @@ module rosetta_lane #(
     logic [15:0] ts_q;                       // MUT_TS_LATE only
     logic        pwe_q;  logic [1:0] pop_q;  logic [27:0] pctl_q;  logic [31:0] pdat_q;
     logic        rv_q;                       // MUT_RESV_LATE only
+    logic        otc_q;                      // MUT_CANCEL_LATE only
     always_ff @(posedge clk or negedge rst_n)
         if (!rst_n) begin
             in_q <= 4'd0; crcw_q <= 1'b0; ts_q <= 16'd0;
-            pwe_q <= 1'b0; pop_q <= 2'd0; pctl_q <= 28'd0; pdat_q <= 32'd0; rv_q <= 1'b0;
+            pwe_q <= 1'b0; pop_q <= 2'd0; pctl_q <= 28'd0; pdat_q <= 32'd0; rv_q <= 1'b0; otc_q <= 1'b0;
         end else begin
 `ifdef MUT_INQ_RUNONLY
             if (run_i) in_q <= in_i;         // BUG: in_q frozen while halted
@@ -98,9 +106,46 @@ module rosetta_lane #(
             pwe_q  <= park_we_i && run_i; pop_q <= park_op_i; pctl_q <= park_ctl_i;
             pdat_q <= park_data_i;
             rv_q   <= f_res_valid;
+            otc_q  <= ot_cancel;
         end
 
     // ---------------------------------------------------------------- u_tick
+// ---- amendment H3/H4 (ruling 59): new mode-bit connections
+`ifdef MUT_H4_SWAP
+    wire t_rone = r_tick[15], t_rsp2 = r_tick[14];   // BUG: rone and rsp2 swapped
+`elsif MUT_H4_RONE_OFF
+    wire t_rone = 1'b0,       t_rsp2 = r_tick[15];   // BUG: rone tied off
+`elsif MUT_H4_RSP2_OFF
+    wire t_rone = r_tick[14], t_rsp2 = 1'b0;         // BUG: rsp2 tied off
+`else
+    wire t_rone = r_tick[14], t_rsp2 = r_tick[15];
+`endif
+`ifdef MUT_DLINE_INV
+    wire t_dline = dline ^ r_code[6];                // BUG: tick sees the line after invert
+`else
+    wire t_dline = dline;
+`endif
+`ifdef MUT_H3_BIT
+    wire f_rawedge = r_code[11];                     // BUG: rawedge from CODE[11]
+`else
+    wire f_rawedge = r_code[12];
+`endif
+`ifdef MUT_FDEDGE_RAW
+    // BUG: field edge from the raw data pin (no differential cleaning)
+    wire f_dedge = in_i[r_code[5:4]] ^ in_q[r_code[5:4]];
+`else
+    wire f_dedge = dedge;
+`endif
+// ---- amendment 2.5 (ruling 60): early-end timer cancel
+`ifdef MUT_CANCEL_OPEN
+    wire t_otc = 1'b0;                               // BUG: cancel not connected
+`elsif MUT_CANCEL_CUDONE
+    wire t_otc = cu_done;                            // BUG: cancel on every completion
+`elsif MUT_CANCEL_LATE
+    wire t_otc = otc_q;                              // BUG: cancel one cycle late
+`else
+    wire t_otc = ot_cancel;
+`endif
 `ifdef MUT_RTRIP3
     localparam int TR = 3;                   // BUG: wrong round trip
 `else
@@ -161,15 +206,15 @@ module rosetta_lane #(
         .cfg_mode_i(r_tick[1:0]), .cfg_ps_i(r_tick[3:2]), .cfg_clkin_i(t_clkin),
         .cfg_capfall_i(r_tick[6]), .cfg_clkout_i(r_tick[7]), .cfg_idle_i(r_tick[8]),
         .cfg_clkod_i(r_tick[9]), .cfg_rest_i(r_tick[10]), .cfg_honour_i(r_tick[11]),
-        .cfg_hold_i(r_tick[12]),
+        .cfg_hold_i(r_tick[12]), .cfg_rone_i(t_rone), .cfg_rsp2_i(t_rsp2),
         .cfg_period_i(r_period), .cfg_period2_i(r_period2), .cfg_thr0_i(r_thr0),
         .cfg_pw0_i(t_pw0), .cfg_pw1_i(t_pw1),
         .cfg_dlyclk_i(t_dlyclk), .cfg_dly_i(r_dly),
-        .in_i(in_i), .in_q_i(t_inq), .dline_i(dline), .dedge_i(dedge), .pw_bit_i(pw_bit),
+        .in_i(in_i), .in_q_i(t_inq), .dline_i(t_dline), .dedge_i(dedge), .pw_bit_i(pw_bit),
         .cu_v_i(cu_v), .cu_fld_i(cu_fld), .cu_tx_i(t_cutx), .cu_smp_i(t_cusmp), .pk_v_i(t_pkv),
         .launch_req_i(launch_req), .fld_next_i(t_fldnext), .fld_first_i(fld_first),
         .data_wait_i(t_dwait), .ot_start_i(ot_start), .ot_raw_i(ot_raw), .ot_n_i(ot_n),
-        .dcap_i(t_dcap),
+        .dcap_i(t_dcap), .ot_cancel_i(t_otc),
         .pt_o(pt), .lt_o(lt), .ct_o(ct), .st_o(st), .cte_o(cte), .hte_o(hte),
         .spend_o(spend), .bt_run_o(bt_run), .bt_stop_o(bt_stop), .ot_done_o(ot_done),
         .d16_o(d16), .ge0_o(ge0), .creq_o(creq), .cpay_o(cpay), .creq_dly_o(creq_dly),
@@ -307,7 +352,7 @@ module rosetta_lane #(
         .cmd_data_i(cmd_data_i), .ts_i(f_ts), .cfg_mode_i(r_tick[1:0]),
         .lt_i(f_lt), .ct_i(f_ct), .st_i(st), .spend_i(spend), .bt_run_i(bt_run),
         .bt_stop_i(bt_stop), .ot_done_i(ot_done), .cfg_honour_i(f_hon),
-        .d16_i(d16), .dedge_i(dedge), .rxb_i(rxb), .rxv_i(rxv),
+        .cfg_rawedge_i(f_rawedge), .d16_i(d16), .dedge_i(f_dedge), .rxb_i(rxb), .rxv_i(rxv),
         .stuff_next_i(stuff_next), .stuff_bit_i(stuff_bit),
         .crc_state_i(f_cstate), .crc_value_i(crc_value),
         .park_full_o(f_park_full), .res_valid_o(f_res_valid), .res_dst_o(f_res_dst),
@@ -319,7 +364,8 @@ module rosetta_lane #(
         .tx_go_o(tx_go), .tx_bit_o(tx_bit), .tx_rel_o(tx_rel), .raw_go_o(raw_go),
         .raw_lvl_o(raw_lvl), .pin_we_o(pin_we), .pin_mask_o(pin_mask),
         .pin_val_o(pin_val), .pin_oe_o(pin_oe), .crc_en_o(crc_en), .crc_bit_o(crc_bit),
-        .stf_valid_o(stf_valid), .stf_bit_o(stf_bit), .cu_done_o(cu_done), .hold_o(hold));
+        .stf_valid_o(stf_valid), .stf_bit_o(stf_bit), .cu_done_o(cu_done), .hold_o(hold),
+        .ot_cancel_o(ot_cancel));
 
     // ---------------------------------------------------------------- u_crc
 `ifdef MUT_CRCW_MISSING

@@ -52,6 +52,13 @@ lane_fv.sv
 #              assertion separately and assumes none of the others. Also
 #              runs the static structural check lane_struct.ys (P14); a
 #              violation is an ERROR of this task.
+#              Amendment H3/H4: includes P-H3b (a_ph3b_*: no stale completion
+#              from a timer an early-ended RAW DRIVE left running) and the
+#              widened / new wiring (a_w_tick_h4, a_w_fld_h3, a_w_cfg_t13);
+#              amendment 2.5 (ruling 60): the early-end timer cancel
+#              (a_w_tick_otc, a_ph3b_cxl, a_ph3b_quiet, a_ph3b_own) and the
+#              restored "idle lane runs no timer" (a_e_r42_ot, a_e_h3_cfg).
+#              The zero rule is lane_zero.sby (miter against today's lane).
 #  prove_hard  smtbmc k-induction, depth 6, on the same composition: the hard
 #              group a_p10_e, a_p10_v (busy_o until the end-of-bit clock
 #              change), l_p10 (its invariant) and a_p7_tag (result width and

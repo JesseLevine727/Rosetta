@@ -6,6 +6,41 @@
 //  lane.md 1-6 and 12.2, and docs/decisions.md (rulings 2-7, 18, 19, 22, 23,
 //  26-29) ONLY. The RTL was not read. Every property is about the ports.
 //
+//  Amendment H4 (docs/blocks/amendment-eth-can.md 3, ruling 59): RECOVER
+//  options. New inputs cfg_rone_i (TICK[14]) and cfg_rsp2_i (TICK[15]);
+//  cfg_capfall_i (TICK[6]) selects the qualifying edge direction and
+//  dline_i is read in RECOVER. With Pr = max(PERIOD, 2):
+//     redge = dedge_i && (!rone || dline_i == !capfall)
+//     H'    = rsp2 ? PERIOD2 : Pr >> 1
+//     lt    = redge || (pt && inc >= Pr)          next cnt = 0 on lt
+//     ct = st = cte = !redge && pt && inc == H' && !(inc >= Pr)
+//  H1 (section 1, TICK[13], rosetta_mdpll) is ON HOLD and not modelled: there
+//  is no h1on, so the group-11 antecedent of amendment 5 is !rone && !rsp2.
+//  Changes: the executable model's RECOVER rules (r_*); TICK-field
+//  environment env_cfg_t covers the two new bits; group 11 (a_p11_*) gets
+//  the antecedent !rone && !rsp2 (h4off) on its timing and edge statements;
+//  new group 11r (a_p11r_*) of amendment 3.3 (a)-(d) with its own port-level
+//  tracker; covers c_h4_*; scripted worked timing of amendment 3.4
+//  (tick_worked_rec, scaled).
+//  Readings (switchable defines, see the report):
+//    TICK_H4_P2D  H' = rsp2 ? max(PERIOD2, 1) : Pr >> 1 instead of the
+//                 literal PERIOD2 (they differ only for PERIOD2 = 0, which
+//                 the compiler rule 1 <= PERIOD2 < Pr excludes).
+//    TICK_ASSUME_H4_OFF  assume rone = rsp2 = 0 and ot_cancel_i = 0
+//                 (zero-rule cross-check against the pre-amendment reference
+//                 model only).
+//
+//  Ruling 60 / amendment 2.5: new input ot_cancel_i (from the field: a RAW
+//  DRIVE ended by an edge, not by its timer). A cancel in cycle c stops the
+//  operation timer from c + 1 on (it wins over an ot_start_i in c); ot_done_o
+//  in c is what it would be without the cancel (no combinational path from
+//  ot_cancel_i to any output); with no timer running it has no effect;
+//  nothing outside the operation timer changes. ot_cancel_i is FREE: no
+//  environment rule about when it may occur (the block must be safe for any
+//  cancel). Changes: the model timer (m_ota), the property-14 trackers (ta,
+//  oa1/pc1), new statements a_p14c_*, covers c_oc_*. env_cfg_o is unchanged
+//  in form: its "timer runs" term is the model's m_ota, which a cancel ends.
+//
 //  Contents
 //   * Executable model of tick.md 3-7 (prescaler, BAUD timer, EDGE with
 //     stretch_hold, RECOVER, PULSE, sample countdown, edge interval counter,
@@ -52,6 +87,8 @@ module tick_props #(
     input wire        cfg_rest_i,
     input wire        cfg_honour_i,
     input wire        cfg_hold_i,
+    input wire        cfg_rone_i,      // TICK[14] (amendment H4)
+    input wire        cfg_rsp2_i,      // TICK[15] (amendment H4)
     input wire [15:0] cfg_period_i,
     input wire [15:0] cfg_period2_i,
     input wire [7:0]  cfg_thr0_i,
@@ -76,6 +113,7 @@ module tick_props #(
     input wire        ot_start_i,
     input wire        ot_raw_i,
     input wire [15:0] ot_n_i,
+    input wire        ot_cancel_i,     // ruling 60 / amendment 2.5
     input wire        dcap_i,
     // outputs of the block
     input wire        pt_o,
@@ -145,6 +183,14 @@ module tick_props #(
     wire        el   = (cin != cinq) && (cin == LL);
     wire        ec   = (cin != cinq) && (cin == CL);
     wire [7:0]  d8   = (d16_o > 16'd255) ? 8'd255 : d16_o[7:0];
+    // Amendment H4 (3.1): qualifying RECOVER edge and capture point
+    wire        redge = dedge_i && (!cfg_rone_i || (dline_i == !cfg_capfall_i));
+`ifdef TICK_H4_P2D
+    wire [15:0] Hq   = cfg_rsp2_i ? P2d : Hr;
+`else
+    wire [15:0] Hq   = cfg_rsp2_i ? cfg_period2_i : Hr;
+`endif
+    wire        h4off = !cfg_rone_i && !cfg_rsp2_i;     // the group-11 antecedent
 
     // ---------------------------------------------------------------------
     // Executable model
@@ -184,10 +230,10 @@ module tick_props #(
     wire e_rel   = e_on && m_srel && (m_inc >= Pd);
     wire e_lt    = el || (m_str && fld_first_i);
 
-    // RECOVER (4.3)
-    wire r_lt    = dedge_i || (m_pt && m_inc >= Pr);
-    wire r_ct    = !dedge_i && m_pt && (m_inc == Hr);
-    wire [15:0] r_next = (dedge_i || (m_pt && m_inc >= Pr)) ? 16'd0 : m_inc;
+    // RECOVER (4.3 as amended by H4, amendment 3.1)
+    wire r_lt    = redge || (m_pt && m_inc >= Pr);
+    wire r_ct    = !redge && m_pt && (m_inc == Hq) && !(m_inc >= Pr);
+    wire [15:0] r_next = r_lt ? 16'd0 : m_inc;
 
     // Sample (5)
     wire m_samp  = m_sarm && (m_scnt == 2'd3) && m_spend;
@@ -243,8 +289,10 @@ module tick_props #(
             m_pre  <= m_pre + 9'd1;
             m_ecnt <= dedge_i ? {15'd0, m_pt} : sat16p(m_ecnt, m_pt);
             m_twq  <= wr_tick_i;
-            // operation timer: cancelled by abort (and halt, above)
-            if (abort_i) begin
+            // operation timer: cancelled by abort (and halt, above) and by
+            // ot_cancel_i (ruling 60: it wins over a start in the same cycle;
+            // ot_done in that cycle, m_otd, does not look at it)
+            if (abort_i || ot_cancel_i) begin
                 m_ota <= 1'b0;
             end else if (ot_start_i) begin
                 m_ota <= !(ot_n1 && m_ptn) && !ot_w0;
@@ -324,6 +372,8 @@ module tick_props #(
     //                 also not while a BAUD sample is pending or a timer
     //                 runs (a timed op is current to its end; R-T6)
     //  env_cfg_t      TICK fields change only at the end of a wr_tick cycle
+    //                 (amendment H4: cfg_rone_i = TICK[14] and cfg_rsp2_i =
+    //                 TICK[15] are TICK fields and follow the same rule)
     //  env_wrtick     wr_tick only with run_i, no abort, idle lane
     //                 (lane.md 2.1: SETM of registers 0-9 only when
     //                 busy_o = park_full_o = 0; at most one strobe)
@@ -343,7 +393,8 @@ module tick_props #(
     //                 receive strobe and the BAUD sample: R-T4)
     //  env_range      proof range (PBITS, OBITS)
     // ---------------------------------------------------------------------
-    wire [12:0] cfgT = {cfg_mode_i, cfg_ps_i, cfg_clkin_i, cfg_capfall_i, cfg_clkout_i,
+    wire [14:0] cfgT = {cfg_rsp2_i, cfg_rone_i,
+                        cfg_mode_i, cfg_ps_i, cfg_clkin_i, cfg_capfall_i, cfg_clkout_i,
                         cfg_idle_i, cfg_clkod_i, cfg_rest_i, cfg_honour_i, cfg_hold_i};
     wire [72:0] cfgO = {cfg_period_i, cfg_period2_i, cfg_thr0_i, cfg_pw0_i, cfg_pw1_i,
                         cfg_dlyclk_i, cfg_dly_i};
@@ -373,6 +424,9 @@ module tick_props #(
                     env_pulse:  assume (env_pulse_w);
                 end
                 env_range: assume (env_range_w);
+`ifdef TICK_ASSUME_H4_OFF
+                env_h4_off: assume (!cfg_rone_i && !cfg_rsp2_i && !ot_cancel_i);
+`endif
             end
             always @(posedge clk) begin
                 if (!$initstate && rst_n && $past(rst_n)) begin
@@ -734,10 +788,18 @@ module tick_props #(
         end
     end
     always @* rv_ok = 1'b1;
+    //      Amendment 3.3 / 5: the timing and edge statements of property 11
+    //      ("ct at L (+) H, next lt at L (+) Pr", "a data edge is always an
+    //      lt and restarts the count") hold as written only with the new
+    //      bits 0: they get the antecedent h4off = !rone && !rsp2 (the
+    //      tracker rv_k restarts at every data edge). a_p11_strobes
+    //      (ct = st = cte, no hte, no stop) holds unchanged (3.1).
     always @* begin
         if (rst_n && G && cfg_mode_i == M_REC) begin
             a_p11_strobes: assert (cte_o == ct_o && st_o == ct_o && !hte_o && !bt_stop_o);
-            if (dedge_i) begin
+            if (!h4off) begin
+                // amended rules: group 11r below
+            end else if (dedge_i) begin
                 a_p11_edge: assert ((lt_o || wr_tick_i) && !ct_o);
             end else if (rv_ok) begin
                 a_p11_ct: assert (ct_o == (pt_o && rv_inc == Hr));
@@ -747,6 +809,54 @@ module tick_props #(
                     a_p11_lt_wr: assert (!lt_o || (pt_o && rv_inc >= Pr));
                 end
             end
+        end
+    end
+
+    // ---- 11r. RECOVER options (amendment 3.3). rr_k = strobes since the
+    //      last launch tick of the amended rules, from ports only: restarted
+    //      by a QUALIFYING edge (redge: dedge_i, dline_i, cfg_rone_i,
+    //      cfg_capfall_i), by the wrap (pt && inc >= Pr), by a TICK write or
+    //      a halt; a non-qualifying edge does not restart it. Followed
+    //      through aborts (3.1: cnt updates in an abort cycle as above).
+    //      Meaningful in RECOVER only (the mode changes only at a TICK
+    //      write, which restarts it).
+    logic [15:0] rr_k;
+    wire  [15:0] rr_inc  = satTp(rr_k, pt_o);
+    wire         rr_wrap = pt_o && (rr_inc >= Pr);
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                    rr_k <= 16'd0;
+        else if (!run_i || wr_tick_i)  rr_k <= 16'd0;
+        else if (redge || rr_wrap)     rr_k <= 16'd0;
+        else                           rr_k <= rr_inc;
+    end
+    always @* begin
+        if (rst_n && G && cfg_mode_i == M_REC) begin
+            // (a) a qualifying edge is always an lt (ruling 44: not in a TICK
+            //     write cycle) and restarts the count (rr_k, used by (c))
+            if (redge) begin
+                a_p11r_a_edge: assert ((lt_o || wr_tick_i) && !ct_o);
+            end
+            // (b) with rone, a non-qualifying edge is an lt only if
+            //     pt && inc >= Pr in that cycle
+            if (cfg_rone_i && dedge_i && !redge) begin
+                a_p11r_b_nq: assert (!lt_o || rr_wrap);
+            end
+            // lt in every cycle without a qualifying edge is exactly the wrap
+            // (with (a): lt = redge || (pt && inc >= Pr), amendment 3.1)
+            if (!redge) begin
+                if (!wr_tick_i) begin
+                    a_p11r_lt:    assert (lt_o == rr_wrap);
+                end else begin
+                    a_p11r_lt_wr: assert (!lt_o || rr_wrap);
+                end
+            end
+            // (c) ct exactly when !redge && pt && inc == H' && inc < Pr
+            a_p11r_c_ct: assert (ct_o == (!redge && pt_o && rr_inc == Hq && rr_inc < Pr));
+        end
+        // (d) lt and ct never together (ruling 50) for every PERIOD2 and
+        //     both options (also stated for all non-EDGE modes: a_r50_ltct)
+        if (rst_n && cfg_mode_i == M_REC) begin
+            a_p11r_d_ltct: assert (!(lt_o && ct_o));
         end
     end
 
@@ -785,10 +895,12 @@ module tick_props #(
     wire [15:0] t_sc = ot_start_i ? ot_sc0 : tsc;
     wire [11:0] t_iv = ot_start_i ? ot_iv0 : tiv;
     wire  t_hit  = t_live && m_ptn && t_sc == 16'd1 && t_iv == 12'd0;
+    //      Ruling 60: a cancel ends the timer at the end of its cycle (also a
+    //      timer started in that cycle); it does not change t_hit in its cycle.
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             ta <= 1'b0; tiv <= 12'd0; tsc <= 16'd0;
-        end else if (!t_live || t_hit) begin
+        end else if (!t_live || t_hit || ot_cancel_i) begin
             ta <= 1'b0;
         end else begin
             ta <= 1'b1;
@@ -812,7 +924,9 @@ module tick_props #(
     //      prescale under a running timer (ruling 43 lets it run on; pt(t)
     //      then no longer shows pt_next(t-1)); only the model check applies
     //      until the next start (R-T7).
-    logic        oa1, od1, oinv;
+    //      pc1: a cancel came in the previous cycle (ruling 60): the timer
+    //      described by oa1 is not live in this cycle unless a start comes.
+    logic        oa1, od1, oinv, pc1;
     logic [11:0] oiv1;
     logic [15:0] osc1;
     logic [1:0]  p_ps;
@@ -822,11 +936,14 @@ module tick_props #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             oa1 <= 1'b0; od1 <= 1'b0; oiv1 <= 12'd0; osc1 <= 16'd0; oinv <= 1'b0; p_ps <= 2'd0;
+            pc1 <= 1'b0;
         end else begin
             od1  <= ot_done_o;
             p_ps <= cfg_ps_i;
+            pc1  <= ot_cancel_i;
             if (!G)                      begin oa1 <= 1'b0; oinv <= 1'b0; end
             else if (ot_start_i)         begin oa1 <= !ot_w0; osc1 <= ot_sc0; oiv1 <= ot_iv0; oinv <= 1'b0; end
+            else if (pc1)                begin oa1 <= 1'b0; oinv <= 1'b0; end
             else if (oa1 && ps_chg)      begin oa1 <= 1'b0; oinv <= 1'b1; end
             else if (oa1 && !o_fin) begin
                 if (pt_o && osc1 == 16'd1) begin osc1 <= Pd; oiv1 <= oiv1 - 12'd1; end
@@ -848,6 +965,30 @@ module tick_props #(
     always @* begin
         if (rst_n && G && ot_start_i && ot_n1 && m_ptn) begin
             a_p14_first: assert (ot_done_o);
+        end
+    end
+
+    // ---- 14c. Timer cancel (ruling 60, amendment 2.5), port level.
+    //      cx = a cancel came and no timer has been started since (a start
+    //      that starts a timer: G, ot_start_i, not a W = 0 non-raw start, and
+    //      no cancel in that same cycle: the cancel wins). After a cancel in
+    //      c, ot_done_o = 0 in every cycle from c + 1 until the cycle of the
+    //      next such start; from that start on the new timer follows section
+    //      7 exactly (a_p14_once / a_p14_done with the restarted trackers).
+    //      ot_done_o in c itself is unaffected: a_p14_once (t_hit does not
+    //      look at ot_cancel_i) and the model check (m_otd). No combinational
+    //      path from ot_cancel_i: every output is compared with the model,
+    //      whose outputs in a cycle never read ot_cancel_i of that cycle.
+    logic cx;
+    wire  t_newstart = G && ot_start_i && !ot_w0;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)            cx <= 1'b0;
+        else if (ot_cancel_i)  cx <= 1'b1;
+        else if (t_newstart)   cx <= 1'b0;
+    end
+    always @* begin
+        if (rst_n && cx && !t_newstart) begin
+            a_p14c_quiet: assert (!ot_done_o);
         end
     end
 
@@ -965,6 +1106,19 @@ module tick_props #(
     logic       f_strel;       // stretch released (by the count)
     logic       f_dly_ref;     // the pending sample took a delayed reference
     logic       f_otwr;        // a TICK write while the timer ran
+    logic       f_nq;          // RECOVER: a non-qualifying edge since the last lt (H4)
+    logic       f_occ;         // a timer started after a cancel (ruling 60)
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                       f_nq <= 1'b0;
+        else if (clr_ev || lt_o)          f_nq <= 1'b0;
+        else if (G && cfg_mode_i == M_REC && cfg_rone_i && dedge_i && !redge) f_nq <= 1'b1;
+    end
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                        f_occ <= 1'b0;
+        else if (ot_cancel_i)              f_occ <= 1'b0;
+        else if (t_newstart && cx)         f_occ <= 1'b1;
+        else if (t_newstart)               f_occ <= 1'b0;
+    end
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) f_otwr <= 1'b0;
         else if (G && ot_start_i) f_otwr <= 1'b0;
@@ -1044,6 +1198,33 @@ module tick_props #(
                     c_rec_bit:    cover (G && cfg_mode_i == M_REC && lt_o && !dedge_i && f_rec_ct && Pr >= 16'd4);
                     c_rec_sync1:  cover (G && cfg_mode_i == M_REC && dedge_i && rv_ok && rv_inc < Hr && rv_inc > 16'd0);
                     c_rec_sync2:  cover (G && cfg_mode_i == M_REC && dedge_i && rv_ok && rv_inc > Hr);
+                    // RECOVER options (amendment 3.3 covers):
+                    //  a non-qualifying edge ignored (mid-count, no lt), and a
+                    //  capture timed from the last qualifying edge after one
+                    c_h4_nq_ign:  cover (G && cfg_mode_i == M_REC && cfg_rone_i && dedge_i && !redge &&
+                                         !lt_o && rr_k != 16'd0);
+                    c_h4_nq_ct:   cover (G && cfg_mode_i == M_REC && cfg_rone_i && ct_o && f_nq);
+                    //  a non-qualifying edge in the capture cycle: capture kept
+                    c_h4_nq_atct: cover (G && cfg_mode_i == M_REC && cfg_rone_i && dedge_i && !redge && ct_o);
+                    //  qualifying edge of each direction (capfall 1: falling)
+                    c_h4_q_fall:  cover (G && cfg_mode_i == M_REC && cfg_rone_i && cfg_capfall_i && redge &&
+                                         !dline_i && lt_o && rr_k != 16'd0);
+                    c_h4_q_rise:  cover (G && cfg_mode_i == M_REC && cfg_rone_i && !cfg_capfall_i && redge &&
+                                         dline_i && lt_o && rr_k != 16'd0);
+                    //  capture at PERIOD2 (not at Pr >> 1)
+                    c_h4_p2:      cover (G && cfg_mode_i == M_REC && cfg_rsp2_i && ct_o &&
+                                         cfg_period2_i != Hr && cfg_period2_i < Pr);
+                    //  PERIOD2 >= Pr: a full period without capture
+                    c_h4_p2ge:    cover (G && cfg_mode_i == M_REC && cfg_rsp2_i && cfg_period2_i >= Pr &&
+                                         lt_o && !dedge_i && !f_rec_ct && Pr >= 16'd4);
+                    //  the !(inc >= Pr) term decides (inc == PERIOD2 at the wrap)
+                    c_h4_p2eq:    cover (G && cfg_mode_i == M_REC && cfg_rsp2_i && !redge && pt_o &&
+                                         rr_inc == cfg_period2_i && rr_inc >= Pr);
+                    //  both options together
+                    c_h4_both:    cover (G && cfg_mode_i == M_REC && cfg_rone_i && cfg_rsp2_i && ct_o &&
+                                         f_nq && cfg_period2_i != Hr);
+                    //  the new bits change only at a TICK write (env_cfg_t)
+                    c_env_h4:     cover ($past(rst_n) && {cfg_rone_i, cfg_rsp2_i} != $past({cfg_rone_i, cfg_rsp2_i}));
                     // PULSE receive: a short and a long pulse; transmit bit
                     c_pulse_shrt: cover (G && cfg_mode_i == M_PULSE && !cu_tx_i && ct_o && !ge0_o && d16_o > 16'd1);
                     c_pulse_long: cover (G && cfg_mode_i == M_PULSE && !cu_tx_i && ct_o && ge0_o && cfg_thr0_i > 8'd2);
@@ -1055,6 +1236,16 @@ module tick_props #(
                     c_ot_first:   cover (ot_done_o && ot_start_i);
                     c_ot_raw3:    cover (ot_done_o && f_ot_r3 && !ot_start_i);
                     c_ot_cancel:  cover (abort_i && ta && !ot_start_i);
+                    // ruling 60 covers (amendment 2.5): cancel in the start
+                    // (effect) cycle of a timer that would run on; cancel of a
+                    // running timer; cancel in the cycle the timer ends anyway
+                    // (ot_done kept); a new timer after a cancel completing on
+                    // its own count; a cancel with no timer (no effect)
+                    c_oc_start:   cover (t_newstart && ot_cancel_i && !(ot_n1 && m_ptn));
+                    c_oc_later:   cover (G && ot_cancel_i && ta && !ot_start_i && !ot_done_o);
+                    c_oc_done:    cover (G && ot_cancel_i && ot_done_o && !ot_start_i);
+                    c_oc_restart: cover (ot_done_o && f_occ && !ot_start_i);
+                    c_oc_idle:    cover (G && ot_cancel_i && !ta && !ot_start_i);
                     // TICK write: idle request next cycle
                     c_twq:        cover (pw_tick && creq_o);
                     // abort and halt while the timer runs
@@ -1103,6 +1294,8 @@ module tick_worked #(
     output wire        cfg_rest_i,
     output wire        cfg_honour_i,
     output wire        cfg_hold_i,
+    output wire        cfg_rone_i,
+    output wire        cfg_rsp2_i,
     output wire [15:0] cfg_period_i,
     output wire [15:0] cfg_period2_i,
     output wire [7:0]  cfg_thr0_i,
@@ -1127,6 +1320,7 @@ module tick_worked #(
     output wire        ot_start_i,
     output wire        ot_raw_i,
     output wire [15:0] ot_n_i,
+    output wire        ot_cancel_i,
     output wire        dcap_i,
     input wire         pt_o,
     input wire         lt_o,
@@ -1168,6 +1362,8 @@ module tick_worked #(
     assign cfg_rest_i    = I2C ? 1'b1 : 1'b0;
     assign cfg_honour_i  = I2C ? 1'b1 : 1'b0;
     assign cfg_hold_i    = 1'b0;
+    assign cfg_rone_i    = 1'b0;                 // amendment H4 bits off
+    assign cfg_rsp2_i    = 1'b0;
     assign cfg_period_i  = I2C ? 16'd6 : 16'd3;
     assign cfg_period2_i = I2C ? 16'd5 : 16'd3;
     assign cfg_thr0_i    = 8'd0;
@@ -1192,6 +1388,7 @@ module tick_worked #(
     assign ot_start_i   = 1'b0;
     assign ot_raw_i     = 1'b0;
     assign ot_n_i       = 16'd0;
+    assign ot_cancel_i  = 1'b0;
     assign dcap_i       = 1'b0;
     assign dline_i      = 1'b0;
     assign dedge_i      = 1'b0;
@@ -1235,6 +1432,149 @@ module tick_worked #(
     // the table's end reached (k = 24 covers cycle 22 of 11.1)
     always @* begin
         w_end: cover (k == 6'd25);
+    end
+endmodule
+
+// ===========================================================================
+//  tick_worked_rec: amendment 3.4 (one CAN bit, RECOVER with rone = rsp2 = 1,
+//  TICK[6] = 1) as exact assertions on a scripted instance, SCALED: PERIOD =
+//  8, PERIOD2 = 6 (75 % sample point, as 90/120), prescale 1. The data line
+//  (dline_i, before invert) idles recessive high; the recessive-to-dominant
+//  (falling, qualifying) edge reaches the lane at t0 = 10; the slow
+//  dominant-to-recessive (rising, non-qualifying) edge at t0 + 8 + 1 = 19.
+//  Expected (table cycle t = k - 1, k = 0 is the reset cycle; cnt = 0 after
+//  reset counts as a launch tick at t = -1):
+//     t  =  5  ct (count 6 since reset)       t =  7  lt (wrap, count 8)
+//     t  = 10  lt (qualifying edge, restart)  t = 16  ct (t0 + PERIOD2)
+//     t  = 18  lt (wrap, t0 + PERIOD)         t = 19  rising edge: nothing
+//     t  = 24  ct (t0 + 8 + 6: not moved)     t = 26  lt (wrap, t0 + 16)
+//  ct = st = cte; no other strobe or request (clock output off).
+// ===========================================================================
+module tick_worked_rec (
+    input wire         clk,
+    output wire        w_rst_n,
+    output wire        run_i,
+    output wire        abort_i,
+    output wire        wr_tick_i,
+    output wire [1:0]  cfg_mode_i,
+    output wire [1:0]  cfg_ps_i,
+    output wire [1:0]  cfg_clkin_i,
+    output wire        cfg_capfall_i,
+    output wire        cfg_clkout_i,
+    output wire        cfg_idle_i,
+    output wire        cfg_clkod_i,
+    output wire        cfg_rest_i,
+    output wire        cfg_honour_i,
+    output wire        cfg_hold_i,
+    output wire        cfg_rone_i,
+    output wire        cfg_rsp2_i,
+    output wire [15:0] cfg_period_i,
+    output wire [15:0] cfg_period2_i,
+    output wire [7:0]  cfg_thr0_i,
+    output wire [7:0]  cfg_pw0_i,
+    output wire [7:0]  cfg_pw1_i,
+    output wire        cfg_dlyclk_i,
+    output wire [7:0]  cfg_dly_i,
+    output wire [3:0]  in_i,
+    output wire [3:0]  in_q_i,
+    output wire        dline_i,
+    output wire        dedge_i,
+    output wire        pw_bit_i,
+    output wire        cu_v_i,
+    output wire        cu_fld_i,
+    output wire        cu_tx_i,
+    output wire        cu_smp_i,
+    output wire        pk_v_i,
+    output wire        launch_req_i,
+    output wire        fld_next_i,
+    output wire        fld_first_i,
+    output wire        data_wait_i,
+    output wire        ot_start_i,
+    output wire        ot_raw_i,
+    output wire [15:0] ot_n_i,
+    output wire        ot_cancel_i,
+    output wire        dcap_i,
+    input wire         pt_o,
+    input wire         lt_o,
+    input wire         ct_o,
+    input wire         st_o,
+    input wire         cte_o,
+    input wire         hte_o,
+    input wire         spend_o,
+    input wire         bt_run_o,
+    input wire         bt_stop_o,
+    input wire         ot_done_o,
+    input wire [15:0]  d16_o,
+    input wire         ge0_o,
+    input wire         creq_o,
+    input wire [1:0]   cpay_o,
+    input wire         creq_dly_o,
+    input wire         creq_cap_o,
+    input wire         stretch_o
+);
+    assign w_rst_n = !$initstate;
+    logic [5:0] k;
+    always_ff @(posedge clk or negedge w_rst_n)
+        if (!w_rst_n) k <= 6'd0; else if (k != 6'd63) k <= k + 6'd1;
+    wire        on = (k != 6'd0);
+    wire [5:0]  t  = k - 6'd1;
+
+    assign cfg_mode_i    = 2'd2;                 // RECOVER
+    assign cfg_ps_i      = 2'd0;                 // prescale 1
+    assign cfg_clkin_i   = 2'd3;
+    assign cfg_capfall_i = 1'b1;                 // TICK[6] = 1: falling edges qualify
+    assign cfg_clkout_i  = 1'b0;
+    assign cfg_idle_i    = 1'b1;
+    assign cfg_clkod_i   = 1'b0;
+    assign cfg_rest_i    = 1'b0;
+    assign cfg_honour_i  = 1'b0;
+    assign cfg_hold_i    = 1'b0;
+    assign cfg_rone_i    = 1'b1;
+    assign cfg_rsp2_i    = 1'b1;
+    assign cfg_period_i  = 16'd8;
+    assign cfg_period2_i = 16'd6;
+    assign cfg_thr0_i    = 8'd0;
+    assign cfg_pw0_i     = 8'd0;
+    assign cfg_pw1_i     = 8'd0;
+    assign cfg_dlyclk_i  = 1'b0;
+    assign cfg_dly_i     = 8'd0;
+    assign run_i         = on;
+    assign abort_i       = 1'b0;
+    assign wr_tick_i     = 1'b0;
+    assign cu_v_i        = 1'b0;               // receive timing only: no op needed
+    assign cu_fld_i      = 1'b0;
+    assign cu_tx_i       = 1'b0;
+    assign cu_smp_i      = 1'b0;
+    assign pk_v_i        = 1'b0;
+    assign launch_req_i  = 1'b0;
+    assign fld_next_i    = 1'b0;
+    assign fld_first_i   = 1'b0;
+    assign data_wait_i   = 1'b0;
+    assign ot_start_i    = 1'b0;
+    assign ot_raw_i      = 1'b0;
+    assign ot_n_i        = 16'd0;
+    assign ot_cancel_i   = 1'b0;
+    assign dcap_i        = 1'b0;
+    assign pw_bit_i      = 1'b0;
+    assign in_i          = 4'd0;
+    assign in_q_i        = 4'd0;
+    // line: recessive (1) until t0 = 10, dominant (0) for t = 10 .. 18,
+    // recessive again from t = 19
+    assign dline_i       = !(on && t >= 6'd10 && t <= 6'd18);
+    assign dedge_i       = on && (t == 6'd10 || t == 6'd19);
+
+    wire x_lt = on && (t == 6'd7 || t == 6'd10 || t == 6'd18 || t == 6'd26);
+    wire x_ct = on && (t == 6'd5 || t == 6'd16 || t == 6'd24);
+    always @* begin
+        if (on && t <= 6'd28) begin
+            wr_lt:    assert (lt_o == x_lt);
+            wr_ct:    assert (ct_o == x_ct && st_o == x_ct && cte_o == x_ct);
+            wr_other: assert (!hte_o && !bt_stop_o && !bt_run_o && !spend_o && !ot_done_o &&
+                              !creq_o && !stretch_o && pt_o);
+        end
+    end
+    always @* begin
+        wr_end: cover (k == 6'd30);
     end
 endmodule
 

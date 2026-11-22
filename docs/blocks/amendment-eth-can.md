@@ -1,6 +1,6 @@
 # Amendment: Manchester phase tracking (H1), edge-terminated `RAW DRIVE` (H3), `RECOVER` options (H4)
 
-Status (21 Nov): **H3 and H4 approved by the owner (ruling 59) and to be implemented from this text. H1 is ON HOLD**: its measured tolerance (section 1.11 and `study/protocols/h1/`) does not meet the 802.3 receiver requirement, so the owner's approval of H1, given on the model's figures, is being re-confirmed. Originally written as a proposal for review. Amends `tick.md`, `field.md`,
+Status (22 Nov): **H3 and H4 are implemented, proven and merged** (with the timer cancel of section 2.5, ruling 60). **H1 is ON HOLD**: its measured tolerance (section 1.11 and `study/protocols/h1/`) does not meet the 802.3 receiver requirement, so the owner's approval of H1, given on the model's figures, is being re-confirmed. Originally written as a proposal for review. Amends `tick.md`, `field.md`,
 `lane.md` 5.1/5.2/6 and isa.md section 4; adds one module,
 `rosetta_mdpll` (spec in section 1). Notation as `lane.md` 1 (`pt`,
 `a (+) D`, `G = run_i && !abort_i`). Evidence: `study/protocols/REPORT.md`

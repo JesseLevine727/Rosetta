@@ -66,10 +66,11 @@ class RoundTrip(unittest.TestCase):
                 self.assertEqual(isa.mode_decode(r.name, isa.mode_encode(r.name, **vals)), vals)
 
     def test_stored_bits_follow_lane_md(self):
-        """lane.md 5.1 'Stored bits' and rulings 10, 21, 23: THR1 and THR2 are
-        deleted, trigger codes 5-7 are off, B-must 3 is 'never'."""
-        stored = {"TICK": 0x1FFF, "PERIOD": 0xFFFF, "PERIOD2": 0xFFFF, "THR01": 0x00FF,
-                  "THR2L": 0xFF00, "CODE": 0x0FFF, "PULSE": 0xFFFF, "STUFF": 0x003F,
+        """lane.md 5.1 'Stored bits' and rulings 10, 21, 23, 59: THR1 and THR2 are
+        deleted, trigger codes 5-7 are off, B-must 3 is 'never'; TICK[15:14] and
+        CODE[12] are stored, TICK[13] is not."""
+        stored = {"TICK": 0xDFFF, "PERIOD": 0xFFFF, "PERIOD2": 0xFFFF, "THR01": 0x00FF,
+                  "THR2L": 0xFF00, "CODE": 0x1FFF, "PULSE": 0xFFFF, "STUFF": 0x003F,
                   "CRCPOLY": 0xFFFF_FFFF, "CRCCFG": 0x007F,
                   **{f"EVC{k}": 0xFFFF for k in range(4)}}
         self.assertEqual({r.name: r.defined_mask for r in isa.MODE_REGS}, stored)

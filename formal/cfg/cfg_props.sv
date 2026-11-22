@@ -4,11 +4,14 @@
 //  the lane's mode-register file and its SETM write side-effect pulses.
 //
 //  Written from docs/blocks/lane.md sections 1, 2, 3, 5, 6, 8, 12,
-//  docs/isa.md section 4, docs/decisions.md rulings 10, 21, 23 and
-//  docs/conventions.md ONLY (the RTL was not read; only its port list).
-//  Every property is about the block's ports.
+//  docs/isa.md section 4, docs/decisions.md rulings 10, 21, 23, 59,
+//  docs/blocks/amendment-eth-can.md sections 0, 2.3, 3.3, 5 (H3/H4; H1 is
+//  ON HOLD: TICK[13] is not stored) and docs/conventions.md ONLY (the RTL
+//  was not read; only its port list). Every property is about the block's
+//  ports.
 //
-//  Spec in one paragraph (lane.md 5.1, 5.2, 8). 198 stored bits, all reset
+//  Spec in one paragraph (lane.md 5.1, 5.2, 8 as amended). 201 stored bits
+//  (198 + TICK[15:14] + CODE[12]), all reset
 //  to 0 by the asynchronous active-low rst_n. "Low write to r" =
 //  run_i && cfg_we_i && !cfg_hi_i && cfg_reg_i == r; it loads the stored
 //  bits of register r from cfg_data_i at the end of the cycle (visible in the
@@ -19,10 +22,13 @@
 //    wr_tick  = low write to 0         wr_code  = low write to 5
 //    wr_stuff = low write to 7         wr_evc[k] = low write to 10+k
 //    wr_crc   = low or high write to 8, or low write to 9
-//  Stored bit positions (lane.md table 5.1, rulings 10 and 23):
-//    tick_o    = TICK[12:0]      period_o = PERIOD[15:0]
+//  Stored bit positions (lane.md table 5.1, rulings 10 and 23, amendment
+//  section 0: TICK[14] rone, TICK[15] rsp2, CODE[12] rawedge added;
+//  TICK[13] (H1 mdpll, on hold) NOT stored: tick_o[13] is constant 0):
+//    tick_o    = {TICK[15:14], 1'b0, TICK[12:0]}
+//    period_o  = PERIOD[15:0]
 //    period2_o = PERIOD2[15:0]   thr0_o   = THR01[7:0]    (THR1 deleted)
-//    dly_o     = THR2L[15:8]     (THR2 deleted)          code_o = CODE[11:0]
+//    dly_o     = THR2L[15:8]     (THR2 deleted)          code_o = CODE[12:0]
 //    pulse_o   = PULSE[15:0]     stuff_o  = STUFF[5:0]
 //    crcpoly_o = CRCPOLY[31:0]   crccfg_o = CRCCFG[6:0]
 //    evc_o[16k +: 16] = EVCk[15:0] (raw; trigger 5-7 / B-must 3 are stored
@@ -31,13 +37,16 @@
 //
 //  Contents
 //   [W] a_watch       THE main property. A symbolic stored bit w (anyconst,
-//                     any of the 198) is compared in EVERY cycle, reset cycles
+//                     any of the 201) is compared in EVERY cycle, reset cycles
 //                     included, with a one-flop shadow holding the last value
 //                     written to it since reset (0 if none). One assertion
 //                     covers every bit of every register: reset value, data
 //                     bit position, register number decode, half decode,
 //                     run_i / cfg_we_i gating, writes to 14..31, the
 //                     one-cycle write latency, and hold while halted.
+//   [Z] a_t13_zero    TICK[13] is never stored: tick_o[13] = 0 in EVERY
+//                     cycle, reset cycles included, whatever is written
+//                     (amendment 0 with H1 on hold).
 //   [R] a_rst_*       every register is 0 in a reset cycle and in the first
 //                     cycle after reset release (a write in a reset cycle is
 //                     lost), stated per register on the ports.
@@ -72,7 +81,7 @@
 //   and 5.1/5.2 define the behaviour (no write, no pulse). Reading S2 lets
 //   the cfg_reg_i <= 13 guarantee be assumed instead (define
 //   CFG_ASSUME_REG_LE13).
-//   checker-internal: w (anyconst) < 198.
+//   checker-internal: w (anyconst) < 201.
 //
 //  Readings (also in the report; each is one define or one line here)
 //   S1  Pulses are "functions of cfg_we_i, cfg_reg_i, cfg_hi_i and run_i"
@@ -89,6 +98,11 @@
 //       the lane top's crcw_q (lane.md 3, 5.4), not a port of this block.
 //   S5  Reset is asynchronous (conventions.md): registers read 0 in the
 //       reset cycle itself.
+//   S6  (amendment H3/H4) TICK[14], TICK[15], CODE[12] are stored exactly
+//       like the other bits of their register (same write rule, reset 0,
+//       data bit = register bit). TICK[13] is not stored (H1 on hold, no
+//       H1 parameter): tick_o[13] is 0 in every cycle, reset included, and
+//       is not part of the watched-bit vector.
 //
 //  Diagnostic defines (for mutation runs only; the default job uses none):
 //   CFG_NO_GRP_W / _R / _N / _C turn off group [W] / [R] / [N] / [C];
@@ -107,12 +121,12 @@ module cfg_props #(
     input wire [4:0]   cfg_reg_i,
     input wire         cfg_hi_i,
     input wire [15:0]  cfg_data_i,
-    input wire [12:0]  tick_o,
+    input wire [15:0]  tick_o,
     input wire [15:0]  period_o,
     input wire [15:0]  period2_o,
     input wire [7:0]   thr0_o,
     input wire [7:0]   dly_o,
-    input wire [11:0]  code_o,
+    input wire [12:0]  code_o,
     input wire [15:0]  pulse_o,
     input wire [5:0]   stuff_o,
     input wire [31:0]  crcpoly_o,
@@ -124,7 +138,7 @@ module cfg_props #(
     input wire         wr_crc_o,
     input wire [3:0]   wr_evc_o
 );
-    localparam integer NB = 198;          // stored bits (lane.md table 5.1)
+    localparam integer NB = 201;          // stored bits (lane.md table 5.1 + amendment 0)
 
     // =====================================================================
     // Spec decode (lane.md 5.1, 5.2)
@@ -144,19 +158,22 @@ module cfg_props #(
     wire [3:0] x_wr_evc   = lo_r[13:10];
 
     // All stored bits as one vector, register 0 at the bottom.
-    //   [12:0] TICK  [28:13] PERIOD  [44:29] PERIOD2  [52:45] THR0
-    //   [60:53] delay  [72:61] CODE  [88:73] PULSE  [94:89] STUFF
-    //   [126:95] CRCPOLY  [133:127] CRCCFG  [197:134] EVC0..EVC3
+    //   [12:0] TICK[12:0]  [14:13] TICK[15:14]  (TICK[13] is not stored)
+    //   [30:15] PERIOD  [46:31] PERIOD2  [54:47] THR0  [62:55] delay
+    //   [75:63] CODE[12:0]  [91:76] PULSE  [97:92] STUFF
+    //   [129:98] CRCPOLY  [136:130] CRCCFG  [200:137] EVC0..EVC3
+    wire [14:0]   tick_st = {tick_o[15:14], tick_o[12:0]};
     wire [NB-1:0] obs = {evc_o, crccfg_o, crcpoly_o, stuff_o, pulse_o,
-                         code_o, dly_o, thr0_o, period2_o, period_o, tick_o};
+                         code_o, dly_o, thr0_o, period2_o, period_o, tick_st};
 
     // Spec next state from the current outputs and inputs.
-    wire [12:0] n_tick    = lo_r[0] ? cfg_data_i[12:0]  : tick_o;
+    wire [15:0] n_tick    = lo_r[0] ? {cfg_data_i[15:14], 1'b0, cfg_data_i[12:0]}
+                                    : {tick_o[15:14], 1'b0, tick_o[12:0]};
     wire [15:0] n_period  = lo_r[1] ? cfg_data_i        : period_o;
     wire [15:0] n_period2 = lo_r[2] ? cfg_data_i        : period2_o;
     wire [7:0]  n_thr0    = lo_r[3] ? cfg_data_i[7:0]   : thr0_o;
     wire [7:0]  n_dly     = lo_r[4] ? cfg_data_i[15:8]  : dly_o;
-    wire [11:0] n_code    = lo_r[5] ? cfg_data_i[11:0]  : code_o;
+    wire [12:0] n_code    = lo_r[5] ? cfg_data_i[12:0]  : code_o;
     wire [15:0] n_pulse   = lo_r[6] ? cfg_data_i        : pulse_o;
     wire [5:0]  n_stuff   = lo_r[7] ? cfg_data_i[5:0]   : stuff_o;
     wire [31:0] n_crcpoly = {hi8     ? cfg_data_i : crcpoly_o[31:16],
@@ -186,8 +203,8 @@ module cfg_props #(
     wire rel = rst_n && rl;
 
     // Previous-cycle samples (only read when rv1 = 1, so no reset needed).
-    logic [12:0] e_tick;    logic [15:0] e_period, e_period2, e_pulse;
-    logic [7:0]  e_thr0, e_dly;  logic [11:0] e_code;  logic [5:0] e_stuff;
+    logic [15:0] e_tick;    logic [15:0] e_period, e_period2, e_pulse;
+    logic [7:0]  e_thr0, e_dly;  logic [12:0] e_code;  logic [5:0] e_stuff;
     logic [31:0] e_crcpoly; logic [6:0]  e_crccfg; logic [63:0] e_evc;
     logic [NB-1:0] p_obs;
     logic [13:0] p_lo_r;
@@ -225,19 +242,21 @@ module cfg_props #(
     logic [7:0] w_j;
     always @* begin
         w_reg = 5'd0; w_hi = 1'b0; w_j = 8'd0;
+        // TICK: obs 0..12 = TICK[12:0], obs 13 = TICK[14], obs 14 = TICK[15]
         if      (w < 8'd13)  begin w_reg = 5'd0;  w_j = w;                end
-        else if (w < 8'd29)  begin w_reg = 5'd1;  w_j = w - 8'd13;        end
-        else if (w < 8'd45)  begin w_reg = 5'd2;  w_j = w - 8'd29;        end
-        else if (w < 8'd53)  begin w_reg = 5'd3;  w_j = w - 8'd45;        end
-        else if (w < 8'd61)  begin w_reg = 5'd4;  w_j = w - 8'd53 + 8'd8; end
-        else if (w < 8'd73)  begin w_reg = 5'd5;  w_j = w - 8'd61;        end
-        else if (w < 8'd89)  begin w_reg = 5'd6;  w_j = w - 8'd73;        end
-        else if (w < 8'd95)  begin w_reg = 5'd7;  w_j = w - 8'd89;        end
-        else if (w < 8'd111) begin w_reg = 5'd8;  w_j = w - 8'd95;        end
-        else if (w < 8'd127) begin w_reg = 5'd8;  w_j = w - 8'd111; w_hi = 1'b1; end
-        else if (w < 8'd134) begin w_reg = 5'd9;  w_j = w - 8'd127;       end
+        else if (w < 8'd15)  begin w_reg = 5'd0;  w_j = w + 8'd1;         end
+        else if (w < 8'd31)  begin w_reg = 5'd1;  w_j = w - 8'd15;        end
+        else if (w < 8'd47)  begin w_reg = 5'd2;  w_j = w - 8'd31;        end
+        else if (w < 8'd55)  begin w_reg = 5'd3;  w_j = w - 8'd47;        end
+        else if (w < 8'd63)  begin w_reg = 5'd4;  w_j = w - 8'd55 + 8'd8; end
+        else if (w < 8'd76)  begin w_reg = 5'd5;  w_j = w - 8'd63;        end
+        else if (w < 8'd92)  begin w_reg = 5'd6;  w_j = w - 8'd76;        end
+        else if (w < 8'd98)  begin w_reg = 5'd7;  w_j = w - 8'd92;        end
+        else if (w < 8'd114) begin w_reg = 5'd8;  w_j = w - 8'd98;        end
+        else if (w < 8'd130) begin w_reg = 5'd8;  w_j = w - 8'd114; w_hi = 1'b1; end
+        else if (w < 8'd137) begin w_reg = 5'd9;  w_j = w - 8'd130;       end
         else begin
-            w_j   = w - 8'd134;
+            w_j   = w - 8'd137;
             w_reg = 5'd10 + {3'd0, w_j[5:4]};
         end
         w_db = w_j[3:0];
@@ -249,7 +268,7 @@ module cfg_props #(
         else if (w_hit) sh <= cfg_data_i[w_db];
     end
     // zero-extended to 256 so the variable index never leaves the vector
-    // (no x bits in the model; w < 198 by env_w_range anyway)
+    // (no x bits in the model; w < 201 by env_w_range anyway)
     wire [255:0] obs_x   = {{(256-NB){1'b0}}, obs};
     wire [255:0] p_obs_x = {{(256-NB){1'b0}}, p_obs};
     wire w_obs   = obs_x[w];
@@ -297,15 +316,19 @@ module cfg_props #(
         a_watch: assert (w_obs == sh);
 `endif
 
+        // ------------------------------------------------ [Z] TICK[13]
+        // not stored (amendment 0, H1 on hold): reads 0 in every cycle
+        a_t13_zero: assert (tick_o[13] == 1'b0);
+
         // ------------------------------------------------ [R] reset values
 `ifndef CFG_NO_GRP_R
         if (!rst_n || rel) begin
-            a_rst_tick:    assert (tick_o    == 13'd0);
+            a_rst_tick:    assert (tick_o    == 16'd0);
             a_rst_period:  assert (period_o  == 16'd0);
             a_rst_period2: assert (period2_o == 16'd0);
             a_rst_thr0:    assert (thr0_o    == 8'd0);
             a_rst_dly:     assert (dly_o     == 8'd0);
-            a_rst_code:    assert (code_o    == 12'd0);
+            a_rst_code:    assert (code_o    == 13'd0);
             a_rst_pulse:   assert (pulse_o   == 16'd0);
             a_rst_stuff:   assert (stuff_o   == 6'd0);
             a_rst_crcpoly: assert (crcpoly_o == 32'd0);
@@ -361,20 +384,20 @@ module cfg_props #(
         // ------------------------------------------------ [C] contracts
 `ifndef CFG_NO_GRP_C
         if (rv1) begin
-            if (tick_o != p_obs[12:0])         a_ct_tick:    assert (p_wr_tick);
-            if (code_o != p_obs[72:61])        a_ct_code:    assert (p_wr_code);
-            if (stuff_o != p_obs[94:89])       a_ct_stuff:   assert (p_wr_stuff);
-            if (crcpoly_o != p_obs[126:95])    a_ct_crcpoly: assert (p_wr_crc);
-            if (crccfg_o != p_obs[133:127])    a_ct_crccfg:  assert (p_wr_crc);
-            if (evc_o[15:0]  != p_obs[149:134]) a_ct_evc0:   assert (p_wr_evc[0]);
-            if (evc_o[31:16] != p_obs[165:150]) a_ct_evc1:   assert (p_wr_evc[1]);
-            if (evc_o[47:32] != p_obs[181:166]) a_ct_evc2:   assert (p_wr_evc[2]);
-            if (evc_o[63:48] != p_obs[197:182]) a_ct_evc3:   assert (p_wr_evc[3]);
-            if (period_o  != p_obs[28:13])     a_ct_period:  assert (p_lo_r[1]);
-            if (period2_o != p_obs[44:29])     a_ct_period2: assert (p_lo_r[2]);
-            if (thr0_o    != p_obs[52:45])     a_ct_thr0:    assert (p_lo_r[3]);
-            if (dly_o     != p_obs[60:53])     a_ct_dly:     assert (p_lo_r[4]);
-            if (pulse_o   != p_obs[88:73])     a_ct_pulse:   assert (p_lo_r[6]);
+            if (tick_st != p_obs[14:0])        a_ct_tick:    assert (p_wr_tick);
+            if (code_o != p_obs[75:63])        a_ct_code:    assert (p_wr_code);
+            if (stuff_o != p_obs[97:92])       a_ct_stuff:   assert (p_wr_stuff);
+            if (crcpoly_o != p_obs[129:98])    a_ct_crcpoly: assert (p_wr_crc);
+            if (crccfg_o != p_obs[136:130])    a_ct_crccfg:  assert (p_wr_crc);
+            if (evc_o[15:0]  != p_obs[152:137]) a_ct_evc0:   assert (p_wr_evc[0]);
+            if (evc_o[31:16] != p_obs[168:153]) a_ct_evc1:   assert (p_wr_evc[1]);
+            if (evc_o[47:32] != p_obs[184:169]) a_ct_evc2:   assert (p_wr_evc[2]);
+            if (evc_o[63:48] != p_obs[200:185]) a_ct_evc3:   assert (p_wr_evc[3]);
+            if (period_o  != p_obs[30:15])     a_ct_period:  assert (p_lo_r[1]);
+            if (period2_o != p_obs[46:31])     a_ct_period2: assert (p_lo_r[2]);
+            if (thr0_o    != p_obs[54:47])     a_ct_thr0:    assert (p_lo_r[3]);
+            if (dly_o     != p_obs[62:55])     a_ct_dly:     assert (p_lo_r[4]);
+            if (pulse_o   != p_obs[91:76])     a_ct_pulse:   assert (p_lo_r[6]);
         end
 `endif
     end
@@ -388,14 +411,14 @@ module cfg_props #(
             wire [14*16-1:0] cur = {
                 evc_o[63:48], evc_o[47:32], evc_o[31:16], evc_o[15:0],
                 {9'd0, crccfg_o}, crcpoly_o[15:0], {10'd0, stuff_o}, pulse_o,
-                {4'd0, code_o}, {dly_o, 8'd0}, {8'd0, thr0_o}, period2_o,
-                period_o, {3'd0, tick_o}};
+                {3'd0, code_o}, {dly_o, 8'd0}, {8'd0, thr0_o}, period2_o,
+                period_o, tick_o};
             wire [14*16-1:0] prv = {
-                p_obs[197:182], p_obs[181:166], p_obs[165:150], p_obs[149:134],
-                {9'd0, p_obs[133:127]}, p_obs[110:95], {10'd0, p_obs[94:89]},
-                p_obs[88:73], {4'd0, p_obs[72:61]}, {p_obs[60:53], 8'd0},
-                {8'd0, p_obs[52:45]}, p_obs[44:29], p_obs[28:13],
-                {3'd0, p_obs[12:0]}};
+                p_obs[200:185], p_obs[184:169], p_obs[168:153], p_obs[152:137],
+                {9'd0, p_obs[136:130]}, p_obs[113:98], {10'd0, p_obs[97:92]},
+                p_obs[91:76], {3'd0, p_obs[75:63]}, {p_obs[62:55], 8'd0},
+                {8'd0, p_obs[54:47]}, p_obs[46:31], p_obs[30:15],
+                {p_obs[14:13], 1'b0, p_obs[12:0]}};
             // per register r = 0..13:
             //  c_wlo_r  a low write to r;  c_whi_r  a high write to r
             //  c_chg_r  the low write's visible effect in the next cycle
@@ -474,7 +497,21 @@ module cfg_props #(
                 if (rst_n) c_watch_hi:  cover (sh && w == 8'(NB - 1));
                 if (rv1)   c_watch_clr: cover (!sh && w_obs == 1'b0 && w_p_obs);
                 // CRCPOLY upper half changed by a high write
-                if (rv1)   c_chg_crcpoly_hi: cover (p_hi8 && crcpoly_o[31:16] != p_obs[126:111]);
+                if (rv1)   c_chg_crcpoly_hi: cover (p_hi8 && crcpoly_o[31:16] != p_obs[129:114]);
+                // amendment 0 (H3/H4): the three new stored bits set by a
+                // write and watched; TICK[13] written with 1 (all ones) and
+                // still 0 the next cycle (a_t13_zero asserts it always)
+                if (rst_n) c_t14_set:   cover (tick_o[14]);
+                if (rst_n) c_t15_set:   cover (tick_o[15]);
+                if (rst_n) c_c12_set:   cover (code_o[12]);
+                if (rv1)   c_t13_ones:  cover (p_lo_r[0] && p_data == 16'hFFFF &&
+                                               tick_o == 16'hDFFF);
+                if (rv1)   c_t1415_clr: cover (p_lo_r[0] && p_obs[14:13] == 2'b11 &&
+                                               tick_o[15:14] == 2'b00);
+                if (rv1)   c_c12_clr:   cover (p_lo_r[5] && p_obs[75] && !code_o[12]);
+                if (rst_n) c_watch_t14: cover (sh && w == 8'd13);
+                if (rst_n) c_watch_t15: cover (sh && w == 8'd14);
+                if (rst_n) c_watch_c12: cover (sh && w == 8'd75);
                 // every pulse, wr_crc from each of its three sources
                 if (rst_n) begin
                     c_wr_tick:   cover (wr_tick_o);
@@ -518,10 +555,12 @@ endmodule
 //  otherwise (the driving is in cfg_fv.sv), have equal outputs in every
 //  cycle.
 // ===========================================================================
-module cfg_bus_props (
-    input wire [197:0] a_obs,
+module cfg_bus_props #(
+    parameter W = 202      // every register output bit (201 stored + tick_o[13])
+) (
+    input wire [W-1:0] a_obs,
     input wire [7:0]   a_pulse,
-    input wire [197:0] b_obs,
+    input wire [W-1:0] b_obs,
     input wire [7:0]   b_pulse
 );
     always @* begin

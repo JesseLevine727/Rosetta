@@ -31,6 +31,33 @@
 //    MUT_CT_REPEAT       BAUD capture without honour stays in phase 0 (a
 //                        second capture without a launch)
 //    MUT_ST_HON_ANY      with honour, st = ct even without cu_smp
+//  Amendment H4 (RECOVER options, cfg_rone_i = TICK[14], cfg_rsp2_i =
+//  TICK[15]; amendment 3.1):
+//    MUT_H4_RONE_IGN     rone ignored: every edge qualifies (lt + restart)
+//    MUT_H4_RONE_DIR     rone qualifies the wrong direction (dline == capfall)
+//    MUT_H4_NQ_LT        a non-qualifying edge still gives a launch tick
+//                        (but does not restart the count)
+//    MUT_H4_CT_DEDGE     any edge (also non-qualifying) suppresses the capture
+//    MUT_H4_RSP2_IGN     rsp2 ignored: capture always at Pr >> 1
+//    MUT_H4_CAP_REG      capture point taken from PERIOD instead of PERIOD2
+//    MUT_H4_NO_WRAPTERM  the !(inc >= Pr) term missing (capture at the wrap)
+//    MUT_H4_ABORT_DEDGE  in an abort cycle the count restarts on any edge
+//    MUT_H4_PULSE_RONE   PULSE receive captures only qualifying edges (rone
+//                        leaks into PULSE)
+//    MUT_H4_BAUD_RSP2    BAUD capture due at P2d when rsp2 (rsp2 leaks into
+//                        BAUD)
+//    MUT_H4_ECNT_RONE    edge interval counter restarts only on qualifying
+//                        edges (rone leaks into the edge interval counter)
+//  Ruling 60 / amendment 2.5 (ot_cancel_i stops the operation timer):
+//    MUT_OC_IGNORED      cancel ignored: the timer runs on, late ot_done
+//    MUT_OC_SUPPRESS     cancel also suppresses ot_done in its own cycle
+//    MUT_OC_LOSES        cancel loses to a start in the same cycle
+//    MUT_OC_COMB         cancel leaks into a combinational output (gates lt)
+//    MUT_OC_LATE         cancel implemented as "force the end and mask the
+//                        next ot_done": a timer started before that forced
+//                        end loses its ot_done (a later timer disturbed)
+//    MUT_OC_BAUD         cancel also clears the BAUD timer and sample state
+//    MUT_OC_REC          cancel also clears the RECOVER count
 // ===========================================================================
 module rosetta_tick #(
     parameter RTRIP = 4
@@ -50,6 +77,8 @@ module rosetta_tick #(
     input  wire        cfg_rest_i,
     input  wire        cfg_honour_i,
     input  wire        cfg_hold_i,
+    input  wire        cfg_rone_i,
+    input  wire        cfg_rsp2_i,
     input  wire [15:0] cfg_period_i,
     input  wire [15:0] cfg_period2_i,
     input  wire [7:0]  cfg_thr0_i,
@@ -74,6 +103,7 @@ module rosetta_tick #(
     input  wire        ot_start_i,
     input  wire        ot_raw_i,
     input  wire [15:0] ot_n_i,
+    input  wire        ot_cancel_i,
     input  wire        dcap_i,
     output logic       pt_o,
     output logic       lt_o,
@@ -130,6 +160,21 @@ module rosetta_tick #(
     wire [15:0] P2d = (cfg_period2_i == 16'd0) ? 16'd1 : cfg_period2_i;
     wire [15:0] Pr  = (cfg_period_i[15:1] == 15'd0) ? 16'd2 : cfg_period_i;
     wire [15:0] Hh  = {1'b0, Pr[15:1]};
+    // amendment H4: qualifying edge, capture point
+`ifdef MUT_H4_RONE_IGN
+    wire redge  = dedge_i;
+`elsif MUT_H4_RONE_DIR
+    wire redge  = dedge_i & (~cfg_rone_i | (dline_i == cfg_capfall_i));
+`else
+    wire redge  = dedge_i & (~cfg_rone_i | (dline_i == ~cfg_capfall_i));
+`endif
+`ifdef MUT_H4_RSP2_IGN
+    wire [15:0] Hq = Hh;
+`elsif MUT_H4_CAP_REG
+    wire [15:0] Hq = cfg_rsp2_i ? cfg_period_i : Hh;
+`else
+    wire [15:0] Hq = cfg_rsp2_i ? cfg_period2_i : Hh;
+`endif
     wire [15:0] inc = (cnt == 16'hFFFF) ? cnt : cnt + {15'd0, pt};
     wire baudm  = (cfg_mode_i == BAUD) || (cfg_mode_i == PULSE);
     wire baudt  = (cfg_mode_i == BAUD) || ((cfg_mode_i == PULSE) && cu_tx_i);
@@ -149,6 +194,8 @@ module rosetta_tick #(
     wire st_p1   = bt_run & bt_ph;
 `ifdef MUT_PERIOD_OFF1
     wire due     = inc > Pd;
+`elsif MUT_H4_BAUD_RSP2
+    wire due     = inc >= (cfg_rsp2_i ? P2d : Pd);
 `else
     wire due     = inc >= Pd;
 `endif
@@ -184,14 +231,29 @@ module rosetta_tick #(
     wire sfirst  = eon & stretch & fld_first_i & ~srel;   // ruling 41
     wire srelq   = eon & srel & (inc >= Pd);
 
-    // ---------------- RECOVER
+    // ---------------- RECOVER (tick.md 4.3 as amended by H4, 3.1)
     wire rwrap   = pt & (inc >= Pr);
+`ifdef MUT_H4_NQ_LT
     wire rlt     = dedge_i | rwrap;
-    wire rct     = ~dedge_i & pt & (inc == Hh);
+`else
+    wire rlt     = redge | rwrap;
+`endif
+`ifdef MUT_H4_NO_WRAPTERM
+    wire rct     = ~redge & pt & (inc == Hq);
+`elsif MUT_H4_CT_DEDGE
+    wire rct     = ~dedge_i & pt & (inc == Hq) & ~(inc >= Pr);
+`else
+    wire rct     = ~redge & pt & (inc == Hq) & ~(inc >= Pr);
+`endif
 `ifdef MUT_REC_NOSYNC
     wire [15:0] rcnt_n = rwrap ? 16'd0 : inc;
 `else
-    wire [15:0] rcnt_n = (dedge_i | rwrap) ? 16'd0 : inc;
+    wire [15:0] rcnt_n = (redge | rwrap) ? 16'd0 : inc;
+`endif
+`ifdef MUT_H4_ABORT_DEDGE
+    wire [15:0] rcnt_a = (dedge_i | rwrap) ? 16'd0 : inc;
+`else
+    wire [15:0] rcnt_a = rcnt_n;
 `endif
 
     // ---------------- sample
@@ -221,20 +283,45 @@ module rosetta_tick #(
     wire [15:0] o_esc  = ot_start_i ? (ot_raw_i ? ((ot_n_i == 16'd0) ? 16'd1 : ot_n_i) : Pd) : ot_sc;
     wire [11:0] o_eiv  = ot_start_i ? (ot_raw_i ? 12'd0 : ot_n_i[11:0] - 12'd1) : ot_iv;
 `ifdef MUT_OT_N1
-    wire        o_done = G & ot_act & ~ot_start_i & ptn & (ot_sc == 16'd1) & (ot_iv == 12'd0);
+    wire        o_done0 = G & ot_act & ~ot_start_i & ptn & (ot_sc == 16'd1) & (ot_iv == 12'd0);
 `else
-    wire        o_done = G & o_eact & ptn & (o_esc == 16'd1) & (o_eiv == 12'd0);
+    wire        o_done0 = G & o_eact & ptn & (o_esc == 16'd1) & (o_eiv == 12'd0);
+`endif
+    // ruling 60: the cancel stops the timer from the next cycle on
+`ifdef MUT_OC_IGNORED
+    wire        o_cancel = 1'b0;
+`elsif MUT_OC_LOSES
+    wire        o_cancel = ot_cancel_i & ~ot_start_i;
+`elsif MUT_OC_LATE
+    wire        o_cancel = 1'b0;           // handled by the forced end below
+`else
+    wire        o_cancel = ot_cancel_i;
+`endif
+`ifdef MUT_OC_LATE
+    logic       osup;                       // mask the next ot_done
+    wire        o_done = o_done0 & ~osup;
+`elsif MUT_OC_SUPPRESS
+    wire        o_done = o_done0 & ~ot_cancel_i;
+`else
+    wire        o_done = o_done0;
 `endif
 
     // ---------------- outputs
     logic lvl;
+`ifdef MUT_H4_PULSE_RONE
+    wire mct = (cfg_mode_i == EDGE) ? ec : (cfg_mode_i == REC) ? rct : redge;
+`else
     wire mct = (cfg_mode_i == EDGE) ? ec : (cfg_mode_i == REC) ? rct : dedge_i;
+`endif
     always_comb begin
         pt_o      = pt;
         lt_o      = 1'b0; ct_o = 1'b0; st_o = 1'b0; cte_o = 1'b0; hte_o = 1'b0;
         if (G) begin
             if (baudt) begin
                 lt_o = blt; ct_o = bct; cte_o = bcte; hte_o = bhte; st_o = bst;
+`ifdef MUT_OC_COMB
+                lt_o = blt & ~ot_cancel_i;
+`endif
             end else begin
                 ct_o = mct; st_o = mct;
                 case (cfg_mode_i)
@@ -288,11 +375,17 @@ module rosetta_tick #(
             spend <= 1'b0; sarm <= 1'b0; rwait <= 1'b0; sdn <= 3'd0;
             stretch <= 1'b0; srel <= 1'b0; twq <= 1'b0; ecnt <= 16'd0;
             ot_act <= 1'b0; ot_iv <= 12'd0; ot_sc <= 16'd0;
+`ifdef MUT_OC_LATE
+            osup <= 1'b0;
+`endif
         end else if (!run_i) begin
             pre <= 9'd0; bt_run <= 1'b0; bt_ph <= 1'b0; lr <= 1'b0; hw <= 1'b0; cnt <= 16'd0;
             spend <= 1'b0; sarm <= 1'b0; rwait <= 1'b0; sdn <= 3'd0;
             stretch <= 1'b0; srel <= 1'b0; twq <= 1'b0; ecnt <= 16'd0;
             ot_act <= 1'b0; ot_iv <= 12'd0; ot_sc <= 16'd0;
+`ifdef MUT_OC_LATE
+            osup <= 1'b0;
+`endif
         end else begin
 `ifdef MUT_PRE_FLDRST
             pre <= fld_first_i ? 9'd0 : pre1;
@@ -302,14 +395,24 @@ module rosetta_tick #(
             twq <= wr_tick_i;
 `ifdef MUT_ECNT_WRAP
             ecnt <= dedge_i ? {15'd0, pt} : ecnt + {15'd0, pt};
+`elsif MUT_H4_ECNT_RONE
+            ecnt <= redge ? {15'd0, pt} : ((ecnt == 16'hFFFF) ? ecnt : ecnt + {15'd0, pt});
 `else
             ecnt <= dedge_i ? {15'd0, pt} : ((ecnt == 16'hFFFF) ? ecnt : ecnt + {15'd0, pt});
 `endif
             // operation timer
-            if (!G | o_w0) begin
+`ifdef MUT_OC_LATE
+            if (ot_cancel_i & ot_act & ~ot_start_i) osup <= 1'b1;
+            else if (o_done0)                       osup <= 1'b0;
+`endif
+            if (!G | o_w0 | o_cancel) begin
                 ot_act <= 1'b0;
+`ifdef MUT_OC_LATE
+            end else if (ot_cancel_i & ot_act & ~ot_start_i) begin
+                ot_sc <= 16'd1; ot_iv <= 12'd0;     // force the end at the next strobe
+`endif
             end else if (o_eact) begin
-                if (o_done) begin
+                if (o_done0) begin
                     ot_act <= 1'b0;
                 end else begin
                     ot_act <= 1'b1;
@@ -321,18 +424,26 @@ module rosetta_tick #(
                     end
                 end
             end
+`ifdef MUT_OC_BAUD
+            if (abort_i | wr_tick_i | ot_cancel_i) begin
+`else
             if (abort_i | wr_tick_i) begin
+`endif
                 bt_run <= 1'b0; bt_ph <= 1'b0; lr <= 1'b0; hw <= 1'b0;
                 spend <= 1'b0; sarm <= 1'b0; rwait <= 1'b0; sdn <= 3'd0;
                 stretch <= 1'b0; srel <= 1'b0;
 `ifdef MUT_ABORT_RECCNT
                 cnt <= 16'd0;
 `else
-                cnt <= (abort_i & ~wr_tick_i & (cfg_mode_i == REC)) ? rcnt_n : 16'd0;
+                cnt <= (abort_i & ~wr_tick_i & (cfg_mode_i == REC)) ? rcnt_a : 16'd0;
 `endif
             end else begin
                 case (cfg_mode_i)
+`ifdef MUT_OC_REC
+                    REC: cnt <= ot_cancel_i ? 16'd0 : rcnt_n;
+`else
                     REC: cnt <= rcnt_n;
+`endif
                     EDGE: begin
                         if (sstart) stretch <= 1'b1;
                         if (sfirst) begin

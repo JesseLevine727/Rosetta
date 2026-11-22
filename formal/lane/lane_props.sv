@@ -10,6 +10,29 @@
 //  only). The proven sub-block RTL is a given component and was read for its
 //  port lists and the names of a few internal flops used by lemmas.
 //
+//  Amendment H3/H4 (docs/blocks/amendment-eth-can.md, ruling 59; H1 on hold
+//  and not modelled; the amended sub-block and lane RTL were not read):
+//   - shadows: TICK stored as [15:0] with bit 13 not stored, CODE as [12:0];
+//   - W: u_tick.cfg_rone_i = TICK[14], cfg_rsp2_i = TICK[15] (a_w_tick_h4),
+//     TICK[13] reads 0 (a_w_cfg_t13), u_field.cfg_rawedge_i = CODE[12]
+//     (a_w_fld_h3); u_tick.dline_i is u_code.dline_o, the line before invert
+//     (a_w_tick_dline, now read by the tick in RECOVER);
+//   - E: tick env_cfg_t covers rone/rsp2 (a_e_t_cfgt); field env_cfg covers
+//     mode, honour, rawedge (a_e_f_cfg); field env_t_ltct in RECOVER is the
+//     lane-level a_e_r53_ltct (tick group 11r(d) at block level);
+//   - amendment 2.5 (ruling 60): an early-ended RAW DRIVE cancels its timer
+//     (u_field.ot_cancel_o -> u_tick.ot_cancel_i, a_w_tick_otc). The idle /
+//     timer statements are back at full strength: a_e_r42_ot (an idle lane
+//     runs no operation timer), l_ov, tick_idle in a_e_t_cfgo, and the former
+//     cover c_h3_cfg_stale is the assertion a_e_h3_cfg;
+//   - P-H3b (a_ph3b_*): a PIN / RAW DRIVE with a timer completes on its own
+//     timer's ot_done or (RAW DRIVE, CODE[12]) on an edge; the cancel is
+//     raised exactly then (a_ph3b_cxl); after a cancel no ot_done until the
+//     next start (a_ph3b_quiet); a running timer always belongs to the
+//     current operation (a_ph3b_own: no stale timer exists);
+//   - zero rule: LANE_ZERO_H34 (assumption on SETM data) for lane_zero.sby;
+//   - covers c_h3_*, c_h4_*.
+//
 //  Layers (all in this module; lane_fv.sv instantiates it):
 //
 //   P  PORT LEVEL, lane.md 9 (a_p<N>_*): only the lane ports and checker
@@ -164,14 +187,16 @@ module lane_props #(
     // Shadows of the mode registers (lane.md 5.1), from the SETM strobes
     // ---------------------------------------------------------------------
     wire wlo = run_i && cfg_we_i && !cfg_hi_i;
-    logic [12:0] sh_tick;  logic [11:0] sh_code;  logic [7:0] sh_dly;  logic [5:0] sh_stuff;
+    // amendment H3/H4: TICK stored as [15:0] with bit 13 not stored (H1 on
+    // hold, reads 0); CODE as [12:0]
+    logic [15:0] sh_tick;  logic [12:0] sh_code;  logic [7:0] sh_dly;  logic [5:0] sh_stuff;
     always_ff @(posedge clk or negedge rst_n)
         if (!rst_n) begin
             sh_tick <= '0; sh_code <= '0; sh_dly <= '0; sh_stuff <= '0;
         end else begin
-            if (wlo && cfg_reg_i == 5'd0) sh_tick  <= cfg_data_i[12:0];
+            if (wlo && cfg_reg_i == 5'd0) sh_tick  <= {cfg_data_i[15:14], 1'b0, cfg_data_i[12:0]};
             if (wlo && cfg_reg_i == 5'd4) sh_dly   <= cfg_data_i[15:8];
-            if (wlo && cfg_reg_i == 5'd5) sh_code  <= cfg_data_i[11:0];
+            if (wlo && cfg_reg_i == 5'd5) sh_code  <= cfg_data_i[12:0];
             if (wlo && cfg_reg_i == 5'd7) sh_stuff <= cfg_data_i[5:0];
         end
     wire [1:0] sh_mode   = sh_tick[1:0];
@@ -226,6 +251,12 @@ module lane_props #(
         // sequencer.md 5.3: a committing SETM (X cycle t) leaves qwait = 0
         // until the lane's next D cycle (>= t+4); tick.md env_after_wr
         if (f_pv && p_rstn) u_afterwr: assume (!p_wrtick || !data_wait_i);
+`ifdef LANE_ZERO_H34
+        // zero rule of the H3/H4 amendment (lane_zero.sby only): the new mode
+        // bits TICK[15:14] and CODE[12] are never written as 1
+        u_zero_tick: assume (!(wlo && cfg_reg_i == 5'd0) || cfg_data_i[15:14] == 2'd0);
+        u_zero_code: assume (!(wlo && cfg_reg_i == 5'd5) || !cfg_data_i[12]);
+`endif
     end
 
     // ---------------------------------------------------------------------
@@ -544,8 +575,8 @@ module lane_props #(
         wire s_crc_init = run_i && (cmd_i == 2'd1 || w_cfg_wr_crc_o || sh_crcw);
 `endif
         wire s_stf_clr  = (run_i && cmd_i == 2'd3) || w_cfg_wr_stuff_o || !run_i;
-        wire [12:0] T = w_cfg_tick_o;
-        wire [11:0] C = w_cfg_code_o;
+        wire [15:0] T = w_cfg_tick_o;      // TICK[15:0] (amendment 0), bit 13 reads 0
+        wire [12:0] C = w_cfg_code_o;      // CODE[12:0]
         wire [15:0] PU = w_cfg_pulse_o;
         wire [5:0]  ST = w_cfg_stuff_o;
         wire [6:0]  CC = w_cfg_crccfg_o;
@@ -569,7 +600,11 @@ module lane_props #(
             a_w_tick_cfgt:  assert ({w_tick_cfg_hold_i, w_tick_cfg_honour_i, w_tick_cfg_rest_i,
                                      w_tick_cfg_clkod_i, w_tick_cfg_idle_i, w_tick_cfg_clkout_i,
                                      w_tick_cfg_capfall_i, w_tick_cfg_clkin_i, w_tick_cfg_ps_i,
-                                     w_tick_cfg_mode_i} == T);
+                                     w_tick_cfg_mode_i} == T[12:0]);
+            // amendment H4 (3.1): rone = TICK[14], rsp2 = TICK[15]; TICK[13]
+            // is not stored (H1 on hold) and reads 0 (amendment 0)
+            a_w_tick_h4:    assert (w_tick_cfg_rone_i == T[14] && w_tick_cfg_rsp2_i == T[15]);
+            a_w_cfg_t13:    assert (!T[13]);
             a_w_tick_per:   assert (w_tick_cfg_period_i == w_cfg_period_o &&
                                     w_tick_cfg_period2_i == w_cfg_period2_o);
             a_w_tick_thr0:  assert (w_tick_cfg_thr0_i == w_cfg_thr0_o);
@@ -590,6 +625,9 @@ module lane_props #(
             if (w_field_ot_start_o)
                 a_w_tick_otn: assert (w_tick_ot_raw_i == w_field_ot_raw_o && w_tick_ot_n_i == w_field_ot_n_o);
             a_w_tick_dcap:  assert (w_tick_dcap_i == w_dly_dcap_o);
+            // amendment 2.5 (ruling 60): the field's early-end cancel drives the
+            // tick's timer cancel
+            a_w_tick_otc:   assert (w_tick_ot_cancel_i == w_field_ot_cancel_o);
             // u_dly (tick.md 9.1)
             a_w_dly_rst:   assert (w_dly_rst_n == rst_n);
             a_w_dly_run:   assert (w_dly_run_i == run_i && w_dly_abort_i == abort_i);
@@ -639,6 +677,8 @@ module lane_props #(
             if (cmd_i == 2'd2) a_w_fld_cmdd: assert (w_field_cmd_data_i == cmd_data_i);
             a_w_fld_ts:    assert (w_field_ts_i == ts_i);
             a_w_fld_cfg:   assert (w_field_cfg_mode_i == T[1:0] && w_field_cfg_honour_i == T[11]);
+            // amendment H3 (2.1): rawedge = CODE[12]
+            a_w_fld_h3:    assert (w_field_cfg_rawedge_i == C[12]);
             a_w_fld_tick:  assert (w_field_lt_i == w_tick_lt_o && w_field_ct_i == w_tick_ct_o &&
                                    w_field_st_i == w_tick_st_o && w_field_spend_i == w_tick_spend_o &&
                                    w_field_bt_run_i == w_tick_bt_run_o && w_field_bt_stop_i == w_tick_bt_stop_o &&
@@ -703,17 +743,45 @@ module lane_props #(
         logic q_fcuv, q_fcudone, q_fpkv, q_spend_set, q_st, q_spend, q_tph0, q_stfv, q_idle;
         logic q_stn, q_stb, q_crcinit, q_stfclr, q_evcwr0, q_evcwr1, q_evcwr2, q_evcwr3;
         logic [3:0]  q_fire;  logic q_viol, q_stuffev;
-        logic [72:0] q_cfgO;  logic [12:0] q_cfgT;  logic [9:0] q_dcfg;  logic [11:0] q_code10;
+        logic [72:0] q_cfgO;  logic [14:0] q_cfgT;  logic [9:0] q_dcfg;  logic [11:0] q_code10;
+        logic [3:0]  q_fcfg;  logic q_fidle, q_tov;
         logic [5:0]  q_stfcfg; logic [70:0] q_crccfg; logic [63:0] q_evc;
         logic q_wrtick, q_wrcode, q_dpv, q_tidle;
         wire  baudt  = (T[1:0] == BAUD) || (T[1:0] == PULSE && w_field_cu_tx_o);
         wire  G      = run_i && !abort_i;
         wire  idle_l = !busy_o && !park_full_o;
+        wire [15:0] h3_pd   = (w_tick_cfg_period_i == 16'd0) ? 16'd1 : w_tick_cfg_period_i;
+        wire        ot_go   = G && w_field_ot_start_o && (w_field_ot_raw_o || w_field_ot_n_o[11:0] != 12'd0);
+        wire        ot_n1   = w_field_ot_raw_o ? (w_field_ot_n_o <= 16'd1)
+                                               : (w_field_ot_n_o[11:0] == 12'd1 && h3_pd == 16'd1);
+        // amendment 2.5 (ruling 60): the cancel made by an early-ended RAW
+        // DRIVE (u_field.ot_cancel_o, wired to u_tick.ot_cancel_i) stops the
+        // timer from the next cycle and wins over a same-cycle start
+        wire        ot_cxl  = run_i && w_field_ot_cancel_o;
+        logic r_live, r_own, r_go_stale, r_go_n1, r_cxl;
+        wire  c_own   = (ok1 && ev_prom) ? 1'b0 : r_own;
+        wire  stale_l = r_live && !c_own;                 // a timer of an earlier op runs
+        always_ff @(posedge clk or negedge rst_n)
+            if (!rst_n) begin r_live <= 1'b0; r_own <= 1'b0; r_go_stale <= 1'b0; r_go_n1 <= 1'b0;
+                              r_cxl <= 1'b0; end
+            else begin
+                r_live     <= run_i && !abort_i && !ot_cxl &&
+                              (ot_go ? !w_tick_ot_done_o : (r_live && !w_tick_ot_done_o));
+                r_own      <= run_i && !abort_i && (ot_go ? 1'b1 : c_own);
+                r_go_stale <= ot_go && w_tick_ot_done_o && stale_l;
+                r_go_n1    <= ot_n1;
+                // after a cancel: no ot_done until the next start (2.5)
+                r_cxl      <= run_i && (ot_cxl || (r_cxl && !ot_go));
+            end
         wire [72:0] cfgO = {w_tick_cfg_period_i, w_tick_cfg_period2_i, w_tick_cfg_thr0_i,
                             w_tick_cfg_pw0_i, w_tick_cfg_pw1_i, w_tick_cfg_dlyclk_i, w_tick_cfg_dly_i};
-        wire [12:0] cfgT = {w_tick_cfg_mode_i, w_tick_cfg_ps_i, w_tick_cfg_clkin_i, w_tick_cfg_capfall_i,
+        // TICK fields of u_tick (tick_props env_cfg_t, amended: rone, rsp2)
+        wire [14:0] cfgT = {w_tick_cfg_rsp2_i, w_tick_cfg_rone_i,
+                            w_tick_cfg_mode_i, w_tick_cfg_ps_i, w_tick_cfg_clkin_i, w_tick_cfg_capfall_i,
                             w_tick_cfg_clkout_i, w_tick_cfg_idle_i, w_tick_cfg_clkod_i, w_tick_cfg_rest_i,
                             w_tick_cfg_honour_i, w_tick_cfg_hold_i};
+        // u_field cfg_ inputs (field_props env_cfg, amended: rawedge)
+        wire [3:0]  fcfg = {w_field_cfg_mode_i, w_field_cfg_honour_i, w_field_cfg_rawedge_i};
         wire [9:0]  dcfg = {w_dly_cfg_dly_i, w_dly_cfg_dlyclk_i, w_dly_cfg_dlyps_i};
         wire [11:0] codecfg = {w_code_cfg_rx_i, w_code_cfg_tx_i, w_code_cfg_din_i, w_code_cfg_inv_i,
                                w_code_cfg_od_i, w_code_cfg_dif_i, w_code_cfg_dfi_i, w_code_cfg_mode_i};
@@ -731,7 +799,8 @@ module lane_props #(
             q_crcinit <= w_crc_init_i; q_stfclr <= w_stuff_clear_i;
             {q_evcwr3, q_evcwr2, q_evcwr1, q_evcwr0} <= w_evt_evc_wr_i;
             q_fire <= w_evt_fire_o; q_viol <= w_stuff_violation_o; q_stuffev <= w_evt_cfg_stuffev_i;
-            q_cfgO <= cfgO; q_cfgT <= cfgT; q_dcfg <= dcfg; q_code10 <= codecfg;
+            q_cfgO <= cfgO; q_cfgT <= cfgT; q_dcfg <= dcfg; q_code10 <= codecfg; q_tov <= w_tick_ov;
+            q_fcfg <= fcfg; q_fidle <= (!w_field_cu_v_o && !w_field_pk_v_o) || !run_i;
             q_stfcfg <= stfcfg; q_crccfg <= crccfg; q_evc <= w_evt_cfg_evc_i;
             q_wrtick <= w_tick_wr_tick_i; q_wrcode <= w_code_wr_code_i; q_dpv <= w_dly_pv;
             q_tidle <= tick_idle;
@@ -760,7 +829,7 @@ module lane_props #(
             // PERIOD..CRCCFG, and with them tick's cfg_ inputs, only then)
             if (idle_l) begin
                 a_e_r42_spend: assert (!w_tick_spend_o);
-                a_e_r42_ot:    assert (!w_tick_ov);
+                a_e_r42_ot:    assert (!w_tick_ov);     // restored by ruling 60
             end
             // ruling 42 itself: while a BAUD sample waits for its reference
             // (the delayed capture-level clock change, tick.md 5), that change
@@ -818,7 +887,13 @@ module lane_props #(
                 // ---- cfg_ change rules of the sub-blocks (conventions.md):
                 // tick env_cfg_o / env_cfg_t
                 a_e_t_cfgo:  assert (cfgO == q_cfgO || q_tidle);
+                // ruling 60: a SETM of PERIOD..THR2L never meets a running
+                // operation timer (was the reachable cover c_h3_cfg_stale)
+                a_e_h3_cfg:  assert (!(cfgO != q_cfgO && q_tov));
                 a_e_t_cfgt:  assert (cfgT == q_cfgT || q_wrtick);
+                // field env_cfg: mode, honour, rawedge change only after a
+                // cycle with cu_v = pk_v = 0 or run_i = 0
+                a_e_f_cfg:   assert (fcfg == q_fcfg || q_fidle);
                 // coding env_cfg_code / env_cfg_mode
                 a_e_c_cfg:   assert (codecfg[11:2] == q_code10[11:2] || q_wrcode);
                 a_e_c_mode:  assert (codecfg[1:0] == q_code10[1:0] || q_wrtick);
@@ -847,6 +922,45 @@ module lane_props #(
             //      the compiler rule (clock low phase >= 5 cycles).
             if (MAIN == 0 || !(T[1:0] == EDGE && T[7] && T[12]))
                 a_e_r53_ltct: assert (!(w_tick_lt_o && w_tick_ct_o));
+        end
+
+        // ---- P-H3b (amendment-eth-can.md 2.2 / 2.3): every PIN or RAW DRIVE
+        //      with a timer completes on the ot_done of the timer started in
+        //      its own effect cycle, or (RAW DRIVE, CODE[12]) on a data edge:
+        //      no stale completion from a timer an early-ended RAW DRIVE left
+        //      running. Port-level shadow of the operation timer (field ot_*,
+        //      tick ot_done_o / pt_o, tick.md 7): t_live = a started timer
+        //      has not ended (cancelled by abort, halt, a new start; ruling
+        //      43: a W = 0 non-raw start starts nothing); own = the latest
+        //      start was made by the CURRENT operation (cleared at every
+        //      promotion, visible one cycle late as ev_prom: c_own).
+        wire h3_pin = c_cu_op == OP_PIN;
+        wire h3_rd  = c_cu_op == OP_RAW && c_cu_ctl[27];
+        always @* if (MAIN == 1 && ok1) begin
+            // a PIN / RAW DRIVE completes: wait 0 at its effect, by the edge
+            // (RAW DRIVE with CODE[12]), or on the ot_done of its OWN timer
+            // (started in its effect cycle: now, or earlier and still own)
+            if (w_field_cu_done_o && w_field_cu_v_o && G && (h3_pin || h3_rd))
+                a_ph3b_src: assert ((h3_pin && w_field_pin_we_o && c_cu_ctl[11:0] == 12'd0) ||
+                                    (h3_rd && C[12] && w_code_dedge_o) ||
+                                    (w_tick_ot_done_o && (c_own || ot_go)));
+            // an ot_done in the effect cycle while an older timer still ran is
+            // the NEW timer's only if its count ends at the first strobe
+            // (N = 1 and the next cycle is a strobe): ruling 43 at lane level
+            if (r_go_stale) a_ph3b_e: assert (r_go_n1 && w_tick_pt_o);
+            // the own timer's end completes the op (no completion is lost)
+            if (c_own && r_live && w_tick_ot_done_o && G && w_field_cu_v_o && (h3_pin || h3_rd))
+                a_ph3b_end: assert (w_field_cu_done_o);
+            // 2.5: the cancel is raised exactly when a RAW DRIVE completes and
+            // its timer has not (the edge term of 2.1 alone)
+            if (run_i) a_ph3b_cxl: assert (w_field_ot_cancel_o ==
+                                           (w_field_cu_done_o && w_field_cu_v_o && h3_rd && !w_tick_ot_done_o));
+            // 2.5: after an early end there is no ot_done at all until the next
+            // operation starts its own timer (its N = 1 end in the start
+            // cycle allowed)
+            if (r_cxl && !ot_go) a_ph3b_quiet: assert (!w_tick_ot_done_o);
+            // no stale timer: a running timer belongs to the current operation
+            if (r_live) a_ph3b_own: assert (c_own && w_field_cu_v_o);
         end
 
         // ---- 6. Promotion is exactly PROMOTE(p) (composition: field.md 1)
@@ -880,7 +994,8 @@ module lane_props #(
             // ruling 42: a BAUD sample is pending only for a current sampling
             // field; the operation timer runs only for a current op
             if (w_tick_spend_o) l_spend: assert (w_field_cu_v_o && w_field_cu_smp_o);
-            if (w_tick_ov)      l_ov:    assert (w_field_cu_v_o);
+            if (w_tick_ov)      l_ov:    assert (w_field_cu_v_o);   // restored (ruling 60)
+            l_ovlive: assert (w_tick_ov == r_live);              // timer shadow = tick timer
             // SR holds no bits above the field width while a FIELD is current
             if (w_field_cu_v_o && w_field_cu_op == OP_FIELD) begin
                 if (!fcu_seek) l_srmask: assert ((w_field_sr_o & ~maskn(fcu_n)) == 32'd0);
@@ -1038,6 +1153,41 @@ module lane_props #(
         // lane.md 9.15 and the white-box features
         logic q_tstr;
         always @(posedge clk) q_tstr <= w_tick_stretch;
+        // H3/H4 cover trackers
+        logic q_ack_nq, q_j1, q_j2, q_rdedge, q34_ok, q_pin_cx;  logic [4:0] q34;
+        always_ff @(posedge clk or negedge rst_n)
+            if (!rst_n) begin
+                q_ack_nq <= 1'b0; q_j1 <= 1'b0; q_j2 <= 1'b0; q_rdedge <= 1'b0; q34 <= 5'd31; q34_ok <= 1'b0;
+                q_pin_cx <= 1'b0;
+            end else begin
+                // a non-qualifying edge while a DRIVE is current, no launch
+                if (w_field_fld_first_o || w_field_tx_go_o || !run_i) q_ack_nq <= 1'b0;
+                else if (w_field_cu_tx_o && T[1:0] == RECOVER && T[14] && T[6] && w_code_dedge_o &&
+                         w_code_dline_o) q_ack_nq <= 1'b1;
+                // a PIN with wait > 0 started its timer right after a cancel
+                if (w_field_cu_done_o || !run_i) q_pin_cx <= 1'b0;
+                else if (w_field_pin_we_o && ot_go && r_cxl) q_pin_cx <= 1'b1;
+                // SOF join chain
+                q_j1 <= run_i && !abort_i && T[1:0] == BAUD && C[12] && h3_rd && w_field_cu_done_o &&
+                        w_code_dedge_o;
+                q_j2 <= q_j1 && w_field_fld_first_o && w_field_tx_go_o;
+                // the last PIN/RAW completion was a RAW DRIVE ended by an edge
+                if (w_field_cu_done_o && w_field_cu_v_o)
+                    q_rdedge <= h3_rd && C[12] && w_code_dedge_o && !w_tick_ot_done_o;
+                // 3.4 scaled: count from a qualifying (falling) edge lt
+                if (!(T[1:0] == RECOVER && T[15:14] == 2'b11 && T[6] && T[3:2] == 2'd0 &&
+                      w_cfg_period_o == 16'd8 && w_cfg_period2_o == 16'd6) || !run_i) begin
+                    q34 <= 5'd31; q34_ok <= 1'b0;
+                end else if (w_tick_lt_o && w_code_dedge_o && !w_code_dline_o) begin
+                    q34 <= 5'd1; q34_ok <= 1'b1;
+                end else if (q34 != 5'd31) begin
+                    q34 <= q34 + 5'd1;
+                    if ((q34 == 5'd6 && !w_tick_ct_o) || (q34 == 5'd8 && !w_tick_lt_o) ||
+                        (q34 != 5'd6 && q34 != 5'd14 && w_tick_ct_o) ||
+                        (q34 != 5'd8 && w_tick_lt_o) || (q34 >= 5'd9 && q34 <= 5'd13 && q34 == 5'd9 && !w_code_dedge_o))
+                        q34_ok <= 1'b0;
+                end
+            end
         logic q_hold, q_prevfld;
         logic [1:0] q_gf;          // FIELD starts while the BAUD timer runs uninterrupted
         always_ff @(posedge clk or negedge rst_n)
@@ -1067,6 +1217,38 @@ module lane_props #(
                                        srcdep(q_pk_op, q_pk_ctl) && park_full_o);
             c_15_pin_eob:       cover (w_field_pin_we_o && w_tick_bt_stop_o && q_prevfld);
             c_15_halt_field:    cover (!run_i && w_field_cu_fld_o);
+            if (MAIN == 1) begin
+                // ---- amendment H3/H4 covers (amendment 2.3, 3.3, 2.4, 3.4)
+                // CAN ACK: a DRIVE launches at the recessive-to-dominant (falling,
+                // TICK[6] = 1) edge under rone, after a dominant-to-recessive edge
+                // during the same DRIVE launched nothing
+                c_h4_ack:     cover (T[1:0] == RECOVER && T[14] && T[6] && w_field_tx_go_o &&
+                                     w_code_dedge_o && !w_code_dline_o && q_ack_nq);
+                // 2.4 SOF join: RAW DRIVE ends on the edge at t (= p + 3, in_i
+                // shows the pin edge of p), SOF field current and launched at
+                // t + 1, our output changed at t + 2 (on the pin at p + 5)
+                c_h3_join:    cover (q_j2 && (out_val_o[0] != p_out_val[0] || out_oe_o[0] != p_out_oe[0]));
+                // 3.4 at reduced scale (PERIOD 8, PERIOD2 6): lt at t0, ct at
+                // t0 + 6, wrap lt at t0 + 8, a non-qualifying edge in t0 + 9 ..
+                // t0 + 13 does not restart, ct at t0 + 14
+                c_h4_34:      cover (q34_ok && q34 == 5'd14 && w_tick_ct_o);
+                // a PIN with wait > 0 directly after a cancelled timer (early-
+                // ended RAW DRIVE), completing on its own timer
+                c_h3b_pin:    cover (w_field_cu_done_o && h3_pin && w_tick_ot_done_o && !w_field_pin_we_o &&
+                                     q_rdedge && q_pin_cx);
+                // cancel in the effect cycle; cancel later; the timer winning
+                // over an edge in its last cycle (no cancel)
+                c_h3_cxl_e:   cover (w_field_ot_cancel_o && w_field_ot_start_o);
+                c_h3_cxl_l:   cover (w_field_ot_cancel_o && !w_field_ot_start_o);
+                c_h3_twins:   cover (h3_rd && C[12] && w_code_dedge_o && w_tick_ot_done_o && w_field_cu_done_o &&
+                                     !w_field_ot_cancel_o);
+                // early end by an edge in the effect cycle / after it; timer end
+                // with CODE[12] = 1 and no edge
+                c_h3_edge_e:  cover (w_field_raw_go_o && C[12] && w_code_dedge_o && w_field_cu_done_o);
+                c_h3_edge_l:  cover (!w_field_raw_go_o && h3_rd && C[12] && w_code_dedge_o &&
+                                     w_field_cu_done_o && !w_tick_ot_done_o);
+                c_h3_timer:   cover (h3_rd && C[12] && !w_code_dedge_o && w_field_cu_done_o);
+            end
             // ruling 42: a BAUD sample pending and taken
             c_r42_spend:        cover (w_tick_spend_o && w_tick_st_o);
             // hazard (reported): with the clock delayed, a PIN that writes out3

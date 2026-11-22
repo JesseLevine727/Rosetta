@@ -18,6 +18,11 @@
 //       pk_v; CRCCHK wins over an EXPECT completion and acts whenever run_i.
 //  Remaining reading: nl wraps modulo 64 (only reachable for a BAUD seek,
 //  where launch_req ignores nl; not observable).
+//  Amendment H3 (amendment-eth-can.md 2.1, 2.3): input cfg_rawedge_i
+//  (CODE[12]); a RAW DRIVE completes at raw_go or eff with
+//  (ot_done_i || (cfg_rawedge_i && dedge_i)).
+//  Ruling 60 / amendment 2.5: m_ot_cancel = a RAW DRIVE completes in this
+//  cycle and ot_done_i = 0.
 // ===========================================================================
 module field_spec (
     input  wire        clk,
@@ -41,6 +46,7 @@ module field_spec (
     input  wire        bt_stop_i,
     input  wire        ot_done_i,
     input  wire        cfg_honour_i,
+    input  wire        cfg_rawedge_i,
     input  wire [15:0] d16_i,
     input  wire        dedge_i,
     input  wire        rxb_i,
@@ -84,6 +90,7 @@ module field_spec (
     output logic        m_stf_bit,
     output logic        m_cu_done,
     output logic        m_hold,
+    output logic        m_ot_cancel,
     // internals, for covers
     output logic        m_prom,
     output logic [5:0]  m_bc_o,
@@ -223,7 +230,9 @@ module field_spec (
         end else if (isPIN) begin
             fin = (pe && (pwait == 12'd0 || ot_done_i)) || (G && eff && ot_done_i);
         end else if (isRAW && raw_drv) begin
-            fin = (re && ot_done_i) || (G && eff && ot_done_i);
+            // field.md 6.1 row RAW DRIVE as amended by H3 (amendment 2.1)
+            fin = (re && (ot_done_i || (cfg_rawedge_i && dedge_i))) ||
+                  (G && eff && (ot_done_i || (cfg_rawedge_i && dedge_i)));
         end else if (isRAW && !raw_drv && !hold) begin
             fin = G && dedge_i;
         end
@@ -333,6 +342,7 @@ module field_spec (
         m_m          = mflag;
         m_sr         = sr;
         m_hold       = hold;
+        m_ot_cancel  = done && isRAW && raw_drv && !ot_done_i;
         m_cu_fld     = isF;
         m_cu_tx      = isF && TX;
         m_cu_smp     = isF && SMP;

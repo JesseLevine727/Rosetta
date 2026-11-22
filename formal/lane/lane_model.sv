@@ -10,6 +10,14 @@
 //  cycle, bmc task). The same expressions are asserted net by net on the
 //  design's sub-block instances by layer W (unbounded).
 //
+//  Amendment H3/H4 (amendment-eth-can.md, ruling 59; H1 on hold): TICK is
+//  stored as [15:0] with bit 13 constant 0, CODE as [12:0]; u_tick gets
+//  cfg_rone_i = TICK[14], cfg_rsp2_i = TICK[15]; u_field gets cfg_rawedge_i
+//  = CODE[12]. The RECOVER strobes (redge, H', the !(inc >= Pr) term) and the
+//  RAW DRIVE completion are inside the real sub-blocks this model
+//  instantiates; the model itself has no copy of those rules. Amendment 2.5
+//  (ruling 60): u_field.ot_cancel_o drives u_tick.ot_cancel_i.
+//
 //  Reading choices (each switchable, see lane_props.sv header, "Spec
 //  readings"):
 //    LANE_CRCW_UNGATED  crcw_q term of u_crc.init_i not gated by run_i
@@ -52,8 +60,8 @@ module lane_model #(
     output logic [3:0]  out_oe_o
 );
     // ---------------------------------------------------------------- u_cfg
-    wire [12:0] r_tick;  wire [15:0] r_period, r_period2, r_pulse;
-    wire [7:0]  r_thr0, r_dly;  wire [11:0] r_code;  wire [5:0] r_stuff;
+    wire [15:0] r_tick;  /* TICK[15:0], bit 13 reads 0 */  wire [15:0] r_period, r_period2, r_pulse;
+    wire [7:0]  r_thr0, r_dly;  wire [12:0] r_code;  /* CODE[12:0] */  wire [5:0] r_stuff;
     wire [31:0] r_crcpoly;  wire [6:0] r_crccfg;  wire [63:0] r_evc;
     wire        wr_tick, wr_code, wr_stuff, wr_crc;  wire [3:0] wr_evc;
     rosetta_cfg u_cfg (
@@ -83,6 +91,7 @@ module lane_model #(
     wire        tx_go, tx_bit, tx_rel, raw_go, raw_lvl, pin_we;
     wire [3:0]  pin_mask, pin_val, pin_oe;
     wire        crc_en, crc_bit, stf_valid, stf_bit, cu_done, hold;
+    wire        ot_cancel;                   // amendment 2.5 (ruling 60)
     wire [31:0] crc_state, crc_value;
     wire        stuff_next, stuff_bit, stuff_viol;
     wire [3:0]  fire;
@@ -93,7 +102,7 @@ module lane_model #(
         .cfg_mode_i(r_tick[1:0]), .cfg_ps_i(r_tick[3:2]), .cfg_clkin_i(r_tick[5:4]),
         .cfg_capfall_i(r_tick[6]), .cfg_clkout_i(r_tick[7]), .cfg_idle_i(r_tick[8]),
         .cfg_clkod_i(r_tick[9]), .cfg_rest_i(r_tick[10]), .cfg_honour_i(r_tick[11]),
-        .cfg_hold_i(r_tick[12]),
+        .cfg_hold_i(r_tick[12]), .cfg_rone_i(r_tick[14]), .cfg_rsp2_i(r_tick[15]),
         .cfg_period_i(r_period), .cfg_period2_i(r_period2), .cfg_thr0_i(r_thr0),
         .cfg_pw0_i(r_pulse[7:0]), .cfg_pw1_i(r_pulse[15:8]),
         .cfg_dlyclk_i(r_code[10]), .cfg_dly_i(r_dly),
@@ -101,7 +110,7 @@ module lane_model #(
         .cu_v_i(cu_v), .cu_fld_i(cu_fld), .cu_tx_i(cu_tx), .cu_smp_i(cu_smp), .pk_v_i(pk_v),
         .launch_req_i(launch_req), .fld_next_i(fld_next), .fld_first_i(fld_first),
         .data_wait_i(data_wait_i), .ot_start_i(ot_start), .ot_raw_i(ot_raw), .ot_n_i(ot_n),
-        .dcap_i(dcap),
+        .dcap_i(dcap), .ot_cancel_i(ot_cancel),
         .pt_o(pt), .lt_o(lt), .ct_o(ct), .st_o(st), .cte_o(cte), .hte_o(hte),
         .spend_o(spend), .bt_run_o(bt_run), .bt_stop_o(bt_stop), .ot_done_o(ot_done),
         .d16_o(d16), .ge0_o(ge0), .creq_o(creq), .cpay_o(cpay), .creq_dly_o(creq_dly),
@@ -138,7 +147,7 @@ module lane_model #(
         .cmd_data_i(cmd_data_i), .ts_i(ts_i), .cfg_mode_i(r_tick[1:0]),
         .lt_i(lt), .ct_i(ct), .st_i(st), .spend_i(spend), .bt_run_i(bt_run),
         .bt_stop_i(bt_stop), .ot_done_i(ot_done), .cfg_honour_i(r_tick[11]),
-        .d16_i(d16), .dedge_i(dedge), .rxb_i(rxb), .rxv_i(rxv),
+        .cfg_rawedge_i(r_code[12]), .d16_i(d16), .dedge_i(dedge), .rxb_i(rxb), .rxv_i(rxv),
         .stuff_next_i(stuff_next), .stuff_bit_i(stuff_bit),
         .crc_state_i(crc_state), .crc_value_i(crc_value),
         .park_full_o(park_full_o), .res_valid_o(res_valid_o), .res_dst_o(res_dst_o),
@@ -150,7 +159,8 @@ module lane_model #(
         .tx_go_o(tx_go), .tx_bit_o(tx_bit), .tx_rel_o(tx_rel), .raw_go_o(raw_go),
         .raw_lvl_o(raw_lvl), .pin_we_o(pin_we), .pin_mask_o(pin_mask),
         .pin_val_o(pin_val), .pin_oe_o(pin_oe), .crc_en_o(crc_en), .crc_bit_o(crc_bit),
-        .stf_valid_o(stf_valid), .stf_bit_o(stf_bit), .cu_done_o(cu_done), .hold_o(hold));
+        .stf_valid_o(stf_valid), .stf_bit_o(stf_bit), .cu_done_o(cu_done), .hold_o(hold),
+        .ot_cancel_o(ot_cancel));
 
     // ---------------------------------------------------------------- u_crc
 `ifdef LANE_CRCW_UNGATED

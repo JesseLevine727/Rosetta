@@ -45,6 +45,7 @@ module field_fv (
     input wire        bt_stop_i,
     input wire        ot_done_i,
     input wire        cfg_honour_i,
+    input wire        cfg_rawedge_i,    // CODE[12], amendment H3: free (env_cfg)
     input wire [15:0] d16_i,
     input wire        dedge_i,
     input wire        rxb_i,
@@ -64,7 +65,8 @@ module field_fv (
         wire        p``park_full, p``res_valid, p``m, p``cu_v, p``cu_fld, p``cu_tx, p``cu_smp, \
                     p``pk_v, p``launch_req, p``fld_next, p``fld_first, p``ot_start, p``ot_raw, \
                     p``tx_go, p``tx_bit, p``tx_rel, p``raw_go, p``raw_lvl, p``pin_we, \
-                    p``crc_en, p``crc_bit, p``stf_valid, p``stf_bit, p``cu_done, p``hold; \
+                    p``crc_en, p``crc_bit, p``stf_valid, p``stf_bit, p``cu_done, p``hold, \
+                    p``ot_cancel; \
         wire [3:0]  p``res_dst, p``dst_busy, p``pin_mask, p``pin_val, p``pin_oe; \
         wire [31:0] p``res_data, p``sr; \
         wire [15:0] p``res_ts, p``ot_n;
@@ -81,7 +83,8 @@ module field_fv (
         .tx_rel_o(p``tx_rel), .raw_go_o(p``raw_go), .raw_lvl_o(p``raw_lvl), .pin_we_o(p``pin_we), \
         .pin_mask_o(p``pin_mask), .pin_val_o(p``pin_val), .pin_oe_o(p``pin_oe), \
         .crc_en_o(p``crc_en), .crc_bit_o(p``crc_bit), .stf_valid_o(p``stf_valid), \
-        .stf_bit_o(p``stf_bit), .cu_done_o(p``cu_done), .hold_o(p``hold)
+        .stf_bit_o(p``stf_bit), .cu_done_o(p``cu_done), .hold_o(p``hold), \
+        .ot_cancel_o(p``ot_cancel)
 
     `define FIELD_INS(OP, CTL, DATA, CMDD) \
         .clk(clk), .rst_n(rst_n), .run_i(run_i), .abort_i(abort_i), .park_we_i(park_we_i), \
@@ -89,6 +92,7 @@ module field_fv (
         .cmd_i(cmd_i), .cmd_data_i(CMDD), .ts_i(ts_i), .cfg_mode_i(cfg_mode_i), \
         .lt_i(lt_i), .ct_i(ct_i), .st_i(st_i), .spend_i(spend_i), .bt_run_i(bt_run_i), \
         .bt_stop_i(bt_stop_i), .ot_done_i(ot_done_i), .cfg_honour_i(cfg_honour_i), \
+        .cfg_rawedge_i(cfg_rawedge_i), \
         .d16_i(d16_i), .dedge_i(dedge_i), .rxb_i(rxb_i), .rxv_i(rxv_i), \
         .stuff_next_i(stuff_next_i), .stuff_bit_i(stuff_bit_i), \
         .crc_state_i(crc_state_i), .crc_value_i(crc_value_i)
@@ -126,13 +130,13 @@ module field_fv (
                           d_tx_go, d_tx_bit, d_tx_rel, d_raw_go, d_raw_lvl, d_pin_we,
                           d_crc_en, d_crc_bit, d_stf_valid, d_stf_bit, d_cu_done, d_hold,
                           d_res_dst, d_dst_busy, d_pin_mask, d_pin_val, d_pin_oe,
-                          d_res_data, d_sr, d_res_ts, d_ot_n, 50'h0};
+                          d_res_data, d_sr, d_res_ts, d_ot_n, d_ot_cancel, 49'h0};
     wire [254:0] b_all = {b_park_full, b_res_valid, b_m, b_cu_v, b_cu_fld, b_cu_tx, b_cu_smp,
                           b_pk_v, b_launch_req, b_fld_next, b_fld_first, b_ot_start, b_ot_raw,
                           b_tx_go, b_tx_bit, b_tx_rel, b_raw_go, b_raw_lvl, b_pin_we,
                           b_crc_en, b_crc_bit, b_stf_valid, b_stf_bit, b_cu_done, b_hold,
                           b_res_dst, b_dst_busy, b_pin_mask, b_pin_val, b_pin_oe,
-                          b_res_data, b_sr, b_res_ts, b_ot_n, 50'h0};
+                          b_res_data, b_sr, b_res_ts, b_ot_n, b_ot_cancel, 49'h0};
     always @* begin
         a_bus_lemma: assert (d_all == b_all);
     end

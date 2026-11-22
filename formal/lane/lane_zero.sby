@@ -1,0 +1,74 @@
+# ============================================================================
+#  Zero rule of the H3/H4 amendment at lane level (lane_zero_fv.sv): with the
+#  new mode bits never written (TICK[15:14] = 0, CODE[12] = 0, assumed on the
+#  SETM data), the amended lane equals today's lane at every port in every
+#  cycle. Today's lane is the pinned pre-amendment revision, written to
+#  ref/build/zero_old/ by gen_zero.py (run it first). From formal/lane/:
+#      python3 gen_zero.py
+#      sby -f -d ref/build/zero_bmc   lane_zero.sby zero_bmc
+#      sby -f -d ref/build/zero_prove lane_zero.sby zero_prove
+#
+#  Only the a_z_* assertions are checked (chformal -remove for the rest of
+#  lane_props, which is here for its environment assumptions only).
+#
+#  zero_bmc    smtbmc bitwuzla, depth 16: every lane.md 9 feature and a
+#              complete FIELD in each tick mode are reached within 8 steps
+#              from reset (lane.sby cover; strobes every cycle), and a
+#              disagreement is visible at the ports one cycle after it arises.
+#              16 is what completes within the 30-minute cap on a loaded
+#              machine (depth 20 reached step 18 in 24 min, no difference).
+#  zero_prove  abc pdr, unbounded attempt on the two-lane miter: did not
+#              converge in 30 minutes (0 of 11 outputs proven); the unbounded
+#              form of the zero rule is the previous property set run on the
+#              amended lane (gen_zero.py, ref/build/zero_oldset/lane.sby).
+# ============================================================================
+[files]
+rosetta_lane.sv ../../src/rosetta_lane.sv
+#rosetta_lane.sv ref/rosetta_lane.sv
+rosetta_cfg.sv ../../src/rosetta_cfg.sv
+rosetta_tick.sv ../../src/rosetta_tick.sv
+rosetta_delay.sv ../../src/rosetta_delay.sv
+rosetta_coding.sv ../../src/rosetta_coding.sv
+rosetta_field.sv ../../src/rosetta_field.sv
+rosetta_crc.sv ../../src/rosetta_crc.sv
+rosetta_stuff.sv ../../src/rosetta_stuff.sv
+rosetta_events.sv ../../src/rosetta_events.sv
+rosetta_pins.sv ../../src/rosetta_pins.sv
+ref/build/zero_old/rosetta_lane_h.sv
+ref/build/zero_old/rosetta_cfg_h.sv
+ref/build/zero_old/rosetta_tick_h.sv
+ref/build/zero_old/rosetta_delay_h.sv
+ref/build/zero_old/rosetta_coding_h.sv
+ref/build/zero_old/rosetta_field_h.sv
+ref/build/zero_old/rosetta_crc_h.sv
+ref/build/zero_old/rosetta_stuff_h.sv
+ref/build/zero_old/rosetta_events_h.sv
+ref/build/zero_old/rosetta_pins_h.sv
+lane_wb.svh
+lane_props.sv
+lane_zero_fv.sv
+
+[tasks]
+zero_bmc
+zero_prove
+
+[options]
+zero_bmc: mode bmc
+zero_bmc: depth 16
+zero_prove: mode prove
+
+[engines]
+zero_bmc: smtbmc bitwuzla
+zero_prove: abc pdr
+
+[script]
+read -define LANE_ZERO_H34
+read -formal rosetta_cfg.sv rosetta_tick.sv rosetta_delay.sv rosetta_coding.sv rosetta_field.sv
+read -formal rosetta_crc.sv rosetta_stuff.sv rosetta_events.sv rosetta_pins.sv rosetta_lane.sv
+read -formal rosetta_lane_h.sv rosetta_cfg_h.sv rosetta_tick_h.sv rosetta_delay_h.sv rosetta_coding_h.sv
+read -formal rosetta_field_h.sv rosetta_crc_h.sv rosetta_stuff_h.sv rosetta_events_h.sv rosetta_pins_h.sv
+read -formal lane_props.sv
+read -formal lane_zero_fv.sv
+prep -top lane_zero_fv
+flatten
+chformal -assert -remove lane_zero_fv/t:$check lane_zero_fv/c:a_z_* %d

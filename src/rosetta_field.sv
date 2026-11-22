@@ -5,6 +5,10 @@
 // Holds the parked and current operations, promotes, executes FIELD, RAW
 // and PIN against the rosetta_tick strobes, owns SR, the bit counters, the
 // result register and M, and drives rosetta_crc and rosetta_stuff.
+// Edge-terminated RAW DRIVE (CODE[12], cfg_rawedge_i) per
+// amendment-eth-can.md section 2 (ruling 59), with the timer cancel of 2.5
+// (ruling 60, ot_cancel_o); with cfg_rawedge_i = 0 the block is unchanged
+// and ot_cancel_o is 0.
 //
 // Flops (field.md 2): pk 63, cu 31, first/eff/hold/tail 4, SR 32, bc 6,
 // nl 6, lnch/lstf/pstf/rel/mm 5, result 53, M 1, plus nlt/nleq 2 (registered
@@ -36,6 +40,7 @@ module rosetta_field (
     input  wire  [1:0]  cfg_mode_i,
     input  wire         lt_i, ct_i, st_i, spend_i, bt_run_i, bt_stop_i, ot_done_i,
     input  wire         cfg_honour_i,
+    input  wire         cfg_rawedge_i,      // CODE[12]: RAW DRIVE also ends on dedge_i
     input  wire  [15:0] d16_i,
     input  wire         dedge_i, rxb_i, rxv_i,
     input  wire         stuff_next_i, stuff_bit_i,
@@ -49,7 +54,7 @@ module rosetta_field (
     output logic [31:0] sr_o,
     output logic        cu_v_o, cu_fld_o, cu_tx_o, cu_smp_o, pk_v_o,
     output logic        launch_req_o, fld_next_o, fld_first_o,
-    output logic        ot_start_o, ot_raw_o,
+    output logic        ot_start_o, ot_raw_o, ot_cancel_o,
     output logic [15:0] ot_n_o,
     output logic        tx_go_o, tx_bit_o, tx_rel_o, raw_go_o, raw_lvl_o,
     output logic        pin_we_o,
@@ -252,15 +257,23 @@ module rosetta_field (
   assign acc     = !res_v || res_ack_i;
   assign ok      = !has_res || acc;               // the result can be taken
 
-  // 7.1 PIN and 7.2 RAW DRIVE effect cycles.
-  logic bt_free, pin_wz, pin_rdy, pin_we, raw_go, pin_done, rawd_done;
+  // 7.1 PIN and 7.2 RAW DRIVE effect cycles. A RAW DRIVE ends at ot_done_i,
+  // or with cfg_rawedge_i at the first data edge in or after its effect
+  // cycle (amendment 2.1); an edge before e (eff = 0, raw_go = 0) is ignored.
+  logic bt_free, pin_wz, pin_rdy, pin_we, raw_go, pin_done, rawd_end, rawd_done;
   assign bt_free   = !bt_run_i || bt_stop_i;
   assign pin_wz    = cu_ctl[11:0] == 12'h000;
   assign pin_rdy   = bauds ? bt_free : (cu_ctl[15] ? lt_i : 1'b1);
   assign pin_we    = g && is_pin && !eff && pin_rdy;
   assign raw_go    = g && is_raw && drv && !eff && (bauds ? bt_free : 1'b1);
   assign pin_done  = (pin_we && (pin_wz || ot_done_i)) || (g && is_pin && eff && ot_done_i);
-  assign rawd_done = (raw_go && ot_done_i) || (g && is_raw && drv && eff && ot_done_i);
+  assign rawd_end  = ot_done_i || (cfg_rawedge_i && dedge_i);
+  assign rawd_done = (raw_go && rawd_end) || (g && is_raw && drv && eff && rawd_end);
+  // 2.5: a RAW DRIVE that completes by the edge term alone cancels its timer.
+  // rawd_done is the RAW DRIVE's cu_done (it never has a result or hold).
+  // With cfg_rawedge_i = 0, rawd_done implies ot_done_i, so this is 0.
+  logic ot_cancel;
+  assign ot_cancel = rawd_done && !ot_done_i;
 
   // A completing op whose result cannot be accepted enters hold instead.
   assign cu_done = (g && hold && cu_v && acc) || (fin_res && ok) || pin_done || rawd_done;
@@ -419,6 +432,7 @@ module rosetta_field (
   assign fld_first_o  = first && cu_op == OP_FIELD;
   assign ot_start_o   = (pin_we && !pin_wz) || raw_go;
   assign ot_raw_o     = cu_op == OP_RAW;
+  assign ot_cancel_o  = ot_cancel;
   assign ot_n_o       = (cu_op == OP_RAW) ? sr[15:0] : {4'h0, cu_ctl[11:0]};
 
   assign tx_go_o      = le;

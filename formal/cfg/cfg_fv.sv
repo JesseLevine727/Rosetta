@@ -9,7 +9,8 @@
 //         cfg_reg_i / cfg_hi_i / cfg_data_i equal to u_a's in cycles with
 //         cfg_we_i = 1 and independently free otherwise. cfg_bus_props
 //         asserts that every output of the two copies is equal in every
-//         cycle.
+//         cycle (all 16 tick_o bits, including the never-stored tick_o[13],
+//         and all 13 code_o bits: amendment H3/H4).
 // ===========================================================================
 
 module cfg_fv (
@@ -26,10 +27,10 @@ module cfg_fv (
     input wire [15:0]  data_b
 );
     // ---------------------------------------------------------------- u_a
-    wire [12:0] a_tick;
+    wire [15:0] a_tick;
     wire [15:0] a_period, a_period2, a_pulse;
     wire [7:0]  a_thr0, a_dly;
-    wire [11:0] a_code;
+    wire [12:0] a_code;
     wire [5:0]  a_stuff;
     wire [31:0] a_crcpoly;
     wire [6:0]  a_crccfg;
@@ -63,10 +64,10 @@ module cfg_fv (
     wire [4:0]  b_reg  = we ? reg_a  : reg_b;
     wire        b_hi   = we ? hi_a   : hi_b;
     wire [15:0] b_data = we ? data_a : data_b;
-    wire [12:0] b_tick;
+    wire [15:0] b_tick;
     wire [15:0] b_period, b_period2, b_pulse;
     wire [7:0]  b_thr0, b_dly;
-    wire [11:0] b_code;
+    wire [12:0] b_code;
     wire [5:0]  b_stuff;
     wire [31:0] b_crcpoly;
     wire [6:0]  b_crccfg;
@@ -84,7 +85,7 @@ module cfg_fv (
         .wr_crc_o(b_wr_crc), .wr_evc_o(b_wr_evc)
     );
 
-    cfg_bus_props u_bus_props (
+    cfg_bus_props #(.W(202)) u_bus_props (
         .a_obs({a_evc, a_crccfg, a_crcpoly, a_stuff, a_pulse, a_code, a_dly,
                 a_thr0, a_period2, a_period, a_tick}),
         .a_pulse({a_wr_evc, a_wr_crc, a_wr_stuff, a_wr_code, a_wr_tick}),

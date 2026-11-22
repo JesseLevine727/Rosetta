@@ -49,16 +49,37 @@ module rosetta_sram512x32 (
         rdata <= mem[addr];
     end
 `else
+  // The macro is characterised for input edges up to 0.5952 ns. With
+  // ROSETTA_MEMBUF (set only when hardening) every macro input is driven by
+  // an explicit strong buffer, so the edge does not depend on what logic the
+  // tools happen to leave in front of the pin. Without it the pins are driven
+  // directly; the two forms are logically identical.
+  logic        m_en, m_wen, m_ren;
+  logic [8:0]  m_addr;
+  logic [31:0] m_din, m_bm;
+`ifdef ROSETTA_MEMBUF
+  wire [76:0] mb_a = {en, en & we, en & ~we, addr, wdata, bmask};
+  wire [76:0] mb_x;
+  (* keep *) sg13cmos5l_buf_8 u_membuf [76:0] (.A(mb_a), .X(mb_x));
+  assign {m_en, m_wen, m_ren, m_addr, m_din, m_bm} = mb_x;
+`else
+  assign m_en   = en;
+  assign m_wen  = en & we;
+  assign m_ren  = en & ~we;
+  assign m_addr = addr;
+  assign m_din  = wdata;
+  assign m_bm   = bmask;
+`endif
   RM_IHPSG13_1P_512x32_c2_bm_bist u_macro (
       .A_CLK       (clk),
-      .A_MEN       (en),
-      .A_WEN       (en & we),
-      .A_REN       (en & ~we),
-      .A_ADDR      (addr),
-      .A_DIN       (wdata),
+      .A_MEN       (m_en),
+      .A_WEN       (m_wen),
+      .A_REN       (m_ren),
+      .A_ADDR      (m_addr),
+      .A_DIN       (m_din),
       .A_DLY       (1'b1),
       .A_DOUT      (rdata),
-      .A_BM        (bmask),
+      .A_BM        (m_bm),
       .A_BIST_CLK  (1'b0),
       .A_BIST_EN   (1'b0),
       .A_BIST_MEN  (1'b0),

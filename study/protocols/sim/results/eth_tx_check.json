@@ -1,0 +1,69 @@
+{
+ "tx_words": 30,
+ "rx_words": 27,
+ "rtl": "09fd49a09d1f3782",
+ "frames": [
+  {
+   "bytes": 64,
+   "interval_set_cycles": [
+    3,
+    6
+   ],
+   "preamble_sfd_bits_seen": 64,
+   "fcs_ok": true,
+   "tp_idl_high_cycles_after_last_edge": 21,
+   "diff_violations": 0,
+   "rx_lane_records": [
+    "0xe1000018",
+    "0xe2000000",
+    "0xe3000001",
+    "0xee000001"
+   ]
+  },
+  {
+   "bytes": 68,
+   "interval_set_cycles": [
+    3,
+    6
+   ],
+   "preamble_sfd_bits_seen": 64,
+   "fcs_ok": true,
+   "tp_idl_high_cycles_after_last_edge": 21,
+   "diff_violations": 0,
+   "rx_lane_records": [
+    "0xe1000019",
+    "0xe2000000",
+    "0xe3000001",
+    "0xee000001"
+   ]
+  },
+  {
+   "bytes": 120,
+   "interval_set_cycles": [
+    3,
+    6
+   ],
+   "preamble_sfd_bits_seen": 64,
+   "fcs_ok": true,
+   "tp_idl_high_cycles_after_last_edge": 21,
+   "diff_violations": 0,
+   "rx_lane_records": [
+    "0xe1000026",
+    "0xe2000000",
+    "0xe3000001",
+    "0xee000001"
+   ]
+  }
+ ],
+ "nlp": {
+  "widths_cycles": [
+   6,
+   6,
+   6
+  ],
+  "periods_cycles": [
+   24630,
+   24630
+  ]
+ }
+}

@@ -1,0 +1,7 @@
+tau_ns  max_short_ns  min_long_ns  max_edge_dev_from_ideal_ns  (classifier needs short<=66.7, long>=83.3)
+     5         50.00       100.00        0.00
+    10         50.00       100.00        0.04
+    20         50.13        99.99        0.99
+    30         51.04        99.86        3.00
+    40         53.08        99.44        5.34
+    60         59.50        97.72       10.13

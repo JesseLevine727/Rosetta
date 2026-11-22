@@ -1,0 +1,384 @@
+{
+ "frames_per_point": 40,
+ "payload_len": 46,
+ "frame_bytes": 64,
+ "points": [
+  {
+   "mode": "uniform",
+   "jitter": 0,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "uniform",
+   "jitter": 2,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "uniform",
+   "jitter": 4,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "uniform",
+   "jitter": 6,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "uniform",
+   "jitter": 7,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "uniform",
+   "jitter": 8,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "uniform",
+   "jitter": 9,
+   "frames": 40,
+   "fails": 1,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 64,
+    "k": 0
+   }
+  },
+  {
+   "mode": "uniform",
+   "jitter": 10,
+   "frames": 40,
+   "fails": 15,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 64,
+    "k": 0
+   }
+  },
+  {
+   "mode": "uniform",
+   "jitter": 11,
+   "frames": 40,
+   "fails": 14,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 63,
+    "k": 29
+   }
+  },
+  {
+   "mode": "uniform",
+   "jitter": 12,
+   "frames": 40,
+   "fails": 20,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 63,
+    "k": 30
+   }
+  },
+  {
+   "mode": "uniform",
+   "jitter": 14,
+   "frames": 40,
+   "fails": 36,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 63,
+    "k": 31
+   }
+  },
+  {
+   "mode": "alt",
+   "jitter": 0,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 4,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 6,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 7,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 7.5,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 8,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 8.2,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "alt",
+   "jitter": 8.5,
+   "frames": 40,
+   "fails": 3,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 62,
+    "k": 21
+   }
+  },
+  {
+   "mode": "alt",
+   "jitter": 9,
+   "frames": 40,
+   "fails": 8,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 58,
+    "k": 18
+   }
+  },
+  {
+   "mode": "alt",
+   "jitter": 10,
+   "frames": 40,
+   "fails": 12,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 62,
+    "k": 20
+   }
+  },
+  {
+   "mode": "none",
+   "dcd": 0,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 8,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 12,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 14,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 15,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 16,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 16.5,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "none",
+   "dcd": 17,
+   "frames": 40,
+   "fails": 3,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 62,
+    "k": 20
+   }
+  },
+  {
+   "mode": "none",
+   "dcd": 18,
+   "frames": 40,
+   "fails": 13,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 3,
+    "k": 31
+   }
+  },
+  {
+   "mode": "none",
+   "dcd": 20,
+   "frames": 40,
+   "fails": 12,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 3,
+    "k": 31
+   }
+  },
+  {
+   "mode": "gauss",
+   "jitter": 1,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "gauss",
+   "jitter": 2,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "gauss",
+   "jitter": 2.5,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "gauss",
+   "jitter": 3,
+   "frames": 40,
+   "fails": 0,
+   "first_fail": null
+  },
+  {
+   "mode": "gauss",
+   "jitter": 3.5,
+   "frames": 40,
+   "fails": 1,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 64,
+    "k": 0
+   }
+  },
+  {
+   "mode": "gauss",
+   "jitter": 4,
+   "frames": 40,
+   "fails": 3,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 64,
+    "k": 0
+   }
+  },
+  {
+   "mode": "gauss",
+   "jitter": 5,
+   "frames": 40,
+   "fails": 20,
+   "first_fail": {
+    "ok": false,
+    "crc": 0,
+    "match": false,
+    "len": 64,
+    "k": 0
+   }
+  }
+ ],
+ "sanity": [
+  {
+   "payload": 46,
+   "ok": true,
+   "k": 0
+  },
+  {
+   "payload": 47,
+   "ok": true,
+   "k": 8
+  },
+  {
+   "payload": 49,
+   "ok": true,
+   "k": 24
+  },
+  {
+   "payload": 50,
+   "ok": true,
+   "k": 0
+  },
+  {
+   "payload": 51,
+   "ok": true,
+   "k": 8
+  }
+ ]
+}

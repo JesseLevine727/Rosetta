@@ -296,7 +296,7 @@ class _Runs:
                     f"{ {k: sorted(v) for k, v in lates.items()} }")
         return comp
 
-@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
+@unittest.skipUnless(rtlsim.available(), rtlsim.unavailable_reason())
 class I2cOnRtl(_Runs, unittest.TestCase):
 
     def test_100khz(self):
@@ -314,7 +314,7 @@ class I2cOnRtl(_Runs, unittest.TestCase):
             compile_file(I2C, "controller", {"scl_rate": "527 kHz"})
 
 
-@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
+@unittest.skipUnless(rtlsim.available(), rtlsim.unavailable_reason())
 class I2cHoldOnRtl(_Runs, unittest.TestCase):
     """The same matrix on i2c_hold.ros (t_hd_dat >= 300 ns): sda now changes
     after scl falls by the hold, so the skewed 0x51 target sees no edge

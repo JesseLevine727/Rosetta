@@ -1,0 +1,9 @@
+# Vivado build outputs and per-run regression results stay local
+out/
+results/
+archive/
+__pycache__/
+*.jou
+*.log
+.Xil/
+ref/

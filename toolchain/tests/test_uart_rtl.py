@@ -123,7 +123,7 @@ def compiled_images(parity):
                  (2, 64, out["listener"].words)]
 
 
-@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
+@unittest.skipUnless(rtlsim.available(), rtlsim.unavailable_reason())
 class UartOnRtl(unittest.TestCase):
 
     def check_link(self, parity, changes, rx, ls, ctrl, tags, late_bounds):

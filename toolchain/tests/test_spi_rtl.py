@@ -139,7 +139,7 @@ def pack(bits):
     return [sum(b << (7 - i) for i, b in enumerate(bits[k:k + 8])) for k in range(0, len(bits), 8)]
 
 
-@unittest.skipUnless(rtlsim.find_verilator(), "Verilator not installed")
+@unittest.skipUnless(rtlsim.available(), rtlsim.unavailable_reason())
 class SpiOnRtl(unittest.TestCase):
 
     def run_mode(self, mode: int, rate: str):

@@ -30,4 +30,7 @@ Workers: Claude Opus 5.5. The human owner approves the items listed under
 | 15 Nov | Lane proof worker, then overseer as designer, then the same worker as property writer from the amended spec only | The PIN / delayed-clock hazard: found by a cover, characterised by a 10-cycle counterexample, fixed in `rosetta_delay` (rulings 57, 58) | Overseer ran delay, lane, hazard and top proofs on the new RTL (all pass) and on the previous RTL (fail), so the proofs distinguish them |
 | 15 Nov | Compiler worker | Ruling 55 checks; I2C with 300 ns hold | The new check rejected the compiler's own earlier I2C target (it wrote the clock pin under clock stretching); fixed, one word changed |
 | 15 Nov | Overseer | Real chip in the GitHub build; bring-up test for RTL and gate level | GitHub: docs, test, gds, precheck and gate-level test all succeeded on commit 8f26af3 |
+| 21 Nov | Study worker | Feasibility of low-speed USB, 10 Mbit Ethernet and CAN on the existing hardware, by hand-written programs simulated on the real RTL | Overseer reran the USB turnaround, CAN arbitration and Ethernet margin campaigns: same numbers |
+| 21 Nov | Worker | FPGA regression gate: board in lockstep with the simulator, shared scenarios, hardware coverage of every block feature | Overseer ran the gate twice on the board (PASS); transcripts compared byte for byte between simulator and board |
+| 21 Nov | Overseer | Diagnosis of the layout fragility from the global router's guides across 15 builds | Checker script's classification matched each build's actual routing outcome |
 

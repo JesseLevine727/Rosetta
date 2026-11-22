@@ -1,0 +1,229 @@
+"""Hardware coverage record: every RTL block and each of its modes, and the
+board tests that exercise them (rosetta-fpga regress.py builds the table
+from this, the targeted tests' COVERS in test_blocks_rtl.py, and the
+programs actually loaded in each session, decoded from its transcript).
+
+Not a test module. To add a protocol's scenarios: add its test module
+(test_<proto>_rtl.py, using rtlsim.Chip so it runs on both backends), list
+what each test exercises in SCENARIOS below, and add any new feature ids to
+FEATURES.
+"""
+
+# (block, feature id, what) -- the feature ids are the vocabulary of COVERS
+FEATURES = [
+    ("rosetta_cfg", "cfg.setm", "mode registers written by SETM (immediate)"),
+    ("rosetta_cfg", "cfg.setm_hi", "upper half of a 32-bit register (SETM .hi, CRCPOLY)"),
+    ("rosetta_cfg", "cfg.setm_reg", "SETM value from a register"),
+    ("rosetta_cfg", "cfg.pulse", "PULSE register (pulse-width high times)"),
+    ("rosetta_tick", "tick.BAUD", "BAUD: launch, capture after PERIOD, next launch after PERIOD2"),
+    ("rosetta_tick", "tick.EDGE", "EDGE: launch and capture on the clock input's edges"),
+    ("rosetta_tick", "tick.RECOVER", "RECOVER: capture half a PERIOD after each data edge"),
+    ("rosetta_tick", "tick.PULSE", "PULSE: a capture at each input edge, symbol from THR0"),
+    ("rosetta_tick", "tick.period2", "unequal BAUD halves (PERIOD2 != PERIOD)"),
+    ("rosetta_tick", "tick.prescale1", "prescaler 1"),
+    ("rosetta_tick", "tick.prescale8", "prescaler 8"),
+    ("rosetta_tick", "tick.prescale64", "prescaler 64"),
+    ("rosetta_tick", "tick.prescale512", "prescaler 512"),
+    ("rosetta_tick", "tick.clock_out", "clock output on out3"),
+    ("rosetta_tick", "tick.clock_idle_high", "clock idle level 1"),
+    ("rosetta_tick", "tick.clock_od", "clock output open-drain"),
+    ("rosetta_tick", "tick.rest", "rest: clock stays at the launch level after a field"),
+    ("rosetta_tick", "tick.capture_rising", "capture on the rising clock edge"),
+    ("rosetta_tick", "tick.capture_falling", "capture on the falling clock edge"),
+    ("rosetta_tick", "tick.stretch_honour", "BAUD clock owner honours a stretched clock"),
+    ("rosetta_tick", "tick.stretch_hold", "EDGE lane holds the clock low while it waits"),
+    ("rosetta_tick", "tick.thr0", "THR0 threshold (Manchester / pulse symbol)"),
+    ("rosetta_tick", "tick.edge_interval", "edge-interval counter (RAW SAMPLE)"),
+    ("rosetta_delay", "delay.data", "launch delay on the data output"),
+    ("rosetta_delay", "delay.clock", "launch delay on the clock output"),
+    ("rosetta_delay", "delay.prescaled", "launch delay in prescaled cycles"),
+    ("rosetta_coding", "coding.level", "level coding"),
+    ("rosetta_coding", "coding.tx.nrzi", "NRZI transmit"),
+    ("rosetta_coding", "coding.rx.nrzi", "NRZI receive"),
+    ("rosetta_coding", "coding.tx.manchester", "Manchester transmit"),
+    ("rosetta_coding", "coding.rx.manchester", "Manchester receive (PULSE mode)"),
+    ("rosetta_coding", "coding.tx.pulse_width", "pulse-width transmit"),
+    ("rosetta_coding", "coding.rx.pulse_symbol", "pulse-symbol receive"),
+    ("rosetta_coding", "coding.invert", "invert (both directions)"),
+    ("rosetta_coding", "coding.data_od", "data output open-drain"),
+    ("rosetta_coding", "coding.diff_out", "differential output (out1 = complement)"),
+    ("rosetta_coding", "coding.diff_in", "differential input"),
+    ("rosetta_coding", "coding.data_in", "data input select other than in0"),
+    ("rosetta_stuff", "stuff.ones", "ONES rule (insert 0 after N ones)"),
+    ("rosetta_stuff", "stuff.equal", "EQUAL rule (insert complement after N equal bits)"),
+    ("rosetta_stuff", "stuff.n5", "N = 5"),
+    ("rosetta_stuff", "stuff.n6", "N = 6"),
+    ("rosetta_stuff", "stuff.violation_event", "violation raises event 3"),
+    ("rosetta_crc", "crc.w1", "width 1 (parity)"),
+    ("rosetta_crc", "crc.w5", "width 5"),
+    ("rosetta_crc", "crc.w8", "width 8"),
+    ("rosetta_crc", "crc.w15", "width 15"),
+    ("rosetta_crc", "crc.w16", "width 16"),
+    ("rosetta_crc", "crc.w32", "width 32"),
+    ("rosetta_crc", "crc.init_zero", "initial value 0"),
+    ("rosetta_crc", "crc.init_ones", "initial value all ones"),
+    ("rosetta_crc", "crc.xorout", "final XOR all ones"),
+    ("rosetta_crc", "crc.msb_first", "data MSB first"),
+    ("rosetta_crc", "crc.lsb_first", "data LSB first (reflected CRC)"),
+    ("rosetta_crc", "crc.expect", "EXPECT against the CRC"),
+    ("rosetta_crc", "crc.pushcrc", "PUSHCRC to the host"),
+    ("rosetta_crc", "crc.crcchk", "CRCCHK against {R1, R0}"),
+    ("rosetta_field", "field.drive", "FIELD DRIVE"),
+    ("rosetta_field", "field.sample", "FIELD SAMPLE"),
+    ("rosetta_field", "field.exchange", "FIELD EXCHANGE"),
+    ("rosetta_field", "field.expect", "FIELD EXPECT"),
+    ("rosetta_field", "field.early", "early first bit"),
+    ("rosetta_field", "field.lsb", "LSB first"),
+    ("rosetta_field", "field.tag", "record tags"),
+    ("rosetta_field", "field.seek", "EXPECT seek"),
+    ("rosetta_field", "field.crc_flag", "CRC update flag"),
+    ("rosetta_field", "field.stuff_flag", "stuffing flag"),
+    ("rosetta_field", "field.src_mem", "MEM as a field source"),
+    ("rosetta_field", "field.raw_drive", "RAW DRIVE"),
+    ("rosetta_field", "field.raw_sample", "RAW SAMPLE"),
+    ("rosetta_field", "field.abandon", "a field abandoned by an event"),
+    ("rosetta_events", "events.level", "trigger: A at level L"),
+    ("rosetta_events", "events.edge", "trigger: A edge to L"),
+    ("rosetta_events", "events.any", "trigger: A any edge"),
+    ("rosetta_events", "events.bothlow", "trigger: A and B both low"),
+    ("rosetta_events", "events.b_high", "B must be high"),
+    ("rosetta_events", "events.b_low", "B must be low"),
+    ("rosetta_events", "events.k_window", "confirm window K"),
+    ("rosetta_events", "events.clear", "EVT clear of a pending bit"),
+    ("rosetta_events", "events.vector", "an armed event vectors the lane"),
+    ("rosetta_pins", "pins.pin", "PIN sets value and enable"),
+    ("rosetta_pins", "pins.pin_wait", "PIN with a wait"),
+    ("rosetta_pins", "pins.release_on_halt", "halt releases every output"),
+    ("rosetta_lane", "lane.0", "lane 0 runs a program"),
+    ("rosetta_lane", "lane.1", "lane 1 runs a program"),
+    ("rosetta_lane", "lane.2", "lane 2 runs a program"),
+    ("rosetta_lane", "lane.3", "lane 3 runs a program"),
+    ("rosetta_seq", "seq.alu", "ALU operations"),
+    ("rosetta_seq", "seq.alu_flags", "Z and N flags"),
+    ("rosetta_seq", "seq.mem_ld_st", "LD / ST in the lane's data region"),
+    ("rosetta_seq", "seq.movsr", "MOVSR / MOVSRH"),
+    ("rosetta_seq", "seq.loop", "LOOP"),
+    ("rosetta_seq", "seq.br_queue", "BR on QE / QNE / QF / QNF"),
+    ("rosetta_seq", "seq.br_event", "BR on an event pending bit"),
+    ("rosetta_seq", "seq.wait_event", "WAIT on events"),
+    ("rosetta_seq", "seq.wait_timeout", "WAIT timeout"),
+    ("rosetta_seq", "seq.pushts", "PUSHTS (timestamp record)"),
+    ("rosetta_seq", "seq.cap_records", "CAP records (listener timestamp + value)"),
+    ("rosetta_seq", "seq.halt", "HALT (with attention)"),
+    ("rosetta_seq", "seq.reserved_halt", "a reserved opcode halts the lane"),
+    ("rosetta_seq", "seq.host_halt", "host CTRL.run = 0 halts a lane"),
+    ("rosetta_seq", "seq.restart", "restart after a halt (PC, CTRL.run)"),
+    ("rosetta_seq", "seq.pause", "pause"),
+    ("rosetta_seq", "seq.single_step", "single step"),
+    ("rosetta_seq", "seq.abort", "abort: an event abandons the current operation"),
+    ("rosetta_chan", "chan.put_get", "PUT / GET between lanes"),
+    ("rosetta_chan", "chan.get_waits", "GET waits for a channel"),
+    ("rosetta_chan", "chan.putsr", "PUTSR (32 bits)"),
+    ("rosetta_chan", "chan.br_valid", "BR on channel valid"),
+    ("rosetta_chan", "chan.host_chstat", "host CHSTAT"),
+    ("rosetta_chan", "chan.host_chdata", "host CHDATA"),
+    ("rosetta_chan", "chan.host_clear", "host clears a channel (W1C)"),
+    ("rosetta_chan", "chan.timestamp", "timestamp counter (records, TIME)"),
+    ("rosetta_xbar", "xbar.insel", "lane input selects (XIN)"),
+    ("rosetta_xbar", "xbar.outsel", "output selects (XOUT) to uo"),
+    ("rosetta_xbar", "xbar.uio_out", "outputs to uio pins"),
+    ("rosetta_xbar", "xbar.uio_oe", "uio enables follow the lanes"),
+    ("rosetta_xbar", "xbar.uio_in", "lanes read uio pins (open-drain buses)"),
+    ("rosetta_xbar", "xbar.loopback", "internal loopback (XCTL)"),
+    ("rosetta_host", "host.write", "register write frames"),
+    ("rosetta_host", "host.read", "register read frames"),
+    ("rosetta_host", "host.id", "ID register"),
+    ("rosetta_host", "host.maddr", "MADDR read back"),
+    ("rosetta_host", "host.mdata_autoinc", "MDATA auto-increment"),
+    ("rosetta_host", "host.time", "TIME register"),
+    ("rosetta_host", "host.irqmask", "IRQMASK"),
+    ("rosetta_host", "host.irqstat", "IRQSTAT"),
+    ("rosetta_host", "host.irqstat_clear", "IRQSTAT write-1-to-clear"),
+    ("rosetta_host", "host.irq_queue", "IRQ pin from a non-empty out queue"),
+    ("rosetta_host", "host.irq_attn", "IRQ pin from attention"),
+    ("rosetta_mem_prog", "mem.prog_load", "program load and read back through the host"),
+    ("rosetta_mem_prog", "mem.prog_full", "all 512 program words"),
+    ("rosetta_mem_data", "mem.data_full", "all 512 data words through the host"),
+    ("rosetta_mem_data", "mem.queues", "host-in / host-out queues"),
+    ("rosetta_mem_data", "mem.queue_full_waits", "a push waits while the host-out queue is full"),
+    ("rosetta_mem_data", "mem.queue_empty_waits", "a POP waits while the host-in queue is empty"),
+    ("rosetta_mem_data", "mem.qcfg_sizes", "queue sizes other than 64 (QCFG)"),
+    ("rosetta_mem_data", "mem.data_lane", "lane data memory (LD/ST, MEM)"),
+    ("top", "top.reset", "reset and reset synchroniser"),
+    ("top", "top.four_lanes", "four lanes at once with the host"),
+    ("top", "top.async_input", "an asynchronous far end on a pin (board only)"),
+]
+
+# The compiled-protocol scenarios (test id -> features the test's checks
+# rely on). regress.py adds what the programs loaded in each session
+# configure (decoded from the transcript), marked separately.
+_UART = ["tick.RECOVER", "tick.BAUD", "coding.level", "field.drive", "field.sample",
+         "field.expect", "field.lsb", "field.tag", "events.edge", "events.clear",
+         "seq.wait_event", "seq.cap_records", "chan.timestamp", "lane.0", "lane.1", "lane.2", "xbar.insel", "xbar.outsel",
+         "host.write", "host.read", "mem.prog_load", "mem.queues", "top.reset", "pins.pin"]
+_SPI = ["tick.BAUD", "tick.EDGE", "tick.clock_out", "field.exchange", "field.early",
+        "field.drive", "field.sample", "field.tag", "events.edge", "events.vector",
+        "seq.cap_records", "seq.wait_event", "pins.pin", "pins.pin_wait", "lane.0", "lane.1",
+        "lane.2", "lane.3", "top.four_lanes", "xbar.insel", "xbar.outsel", "host.write",
+        "host.read", "mem.prog_load", "mem.queues", "chan.timestamp", "top.reset"]
+# capture edge of the EDGE-mode lanes and clock idle level, per SPI mode
+_SPI_MODE = {0: ["tick.capture_rising"], 1: ["tick.capture_falling"],
+             2: ["tick.capture_falling", "tick.clock_idle_high"],
+             3: ["tick.capture_rising", "tick.clock_idle_high"]}
+_I2C = ["tick.BAUD", "tick.EDGE", "tick.clock_out", "tick.clock_idle_high", "tick.clock_od",
+        "tick.rest", "tick.stretch_honour", "tick.stretch_hold", "tick.period2",
+        "coding.data_od", "field.drive", "field.sample", "field.expect", "field.tag",
+        "events.edge", "events.level", "events.b_high", "events.k_window", "events.vector",
+        "events.clear", "seq.halt", "seq.cap_records", "seq.wait_event", "seq.alu",
+        "seq.alu_flags", "pins.pin", "pins.pin_wait", "pins.release_on_halt", "lane.0",
+        "lane.1", "lane.2", "lane.3", "top.four_lanes", "xbar.insel", "xbar.uio_out",
+        "xbar.uio_oe", "xbar.uio_in", "host.write", "host.read", "mem.prog_load",
+        "mem.queues", "chan.timestamp", "top.reset", "seq.abort"]
+
+SCENARIOS = {
+    "test_uart_rtl.UartOnRtl.test_parity_none_and_framing_error": _UART,
+    "test_uart_rtl.UartOnRtl.test_parity_even_and_wrong_parity": _UART + ["crc.w1"],
+    "test_uart_rtl.UartOnRtl.test_parity_odd_and_wrong_parity": _UART + ["crc.w1", "crc.xorout"],
+    "test_uart_rtl.UartOnRtl.test_same_behaviour_as_hand_written": _UART,
+    "test_spi_rtl.SpiOnRtl.test_mode0": _SPI + _SPI_MODE[0],
+    "test_spi_rtl.SpiOnRtl.test_mode1": _SPI + _SPI_MODE[1],
+    "test_spi_rtl.SpiOnRtl.test_mode2": _SPI + _SPI_MODE[2],
+    "test_spi_rtl.SpiOnRtl.test_mode3": _SPI + _SPI_MODE[3],
+    "test_spi_rtl.SpiOnRtl.test_against_hand_written": _SPI + _SPI_MODE[0],
+    "test_i2c_rtl.I2cOnRtl.test_100khz": _I2C,
+    "test_i2c_rtl.I2cOnRtl.test_400khz": _I2C,
+    "test_i2c_rtl.I2cOnRtl.test_fastest": _I2C,
+    "test_i2c_rtl.I2cHoldOnRtl.test_100khz": _I2C + ["delay.data"],
+    "test_i2c_rtl.I2cHoldOnRtl.test_400khz": _I2C + ["delay.data"],
+    "test_i2c_rtl.I2cHoldOnRtl.test_fastest": _I2C + ["delay.data"],
+    "test_i2c_rtl.I2cHoldOnRtl.test_no_confirm_window": _I2C + ["delay.data"],
+}
+
+# Board-only checks (rosetta-fpga board_tests.py)
+BOARD_ONLY = {
+    "board.uart_async_sweep": ["top.async_input", "tick.RECOVER", "events.edge", "lane.1", "lane.2",
+                               "seq.cap_records"],
+}
+
+# What this board cannot exercise, and why
+NOT_ON_THIS_BOARD = [
+    ("Pad and Tiny Tapeout mux timing", "The chip's pins are FPGA nets: no pads, no TT mux, no "
+     "board wiring (the headers are not connected). Output delay, slew, input thresholds and the "
+     "host.md 2.1 margins for pad delay cannot be measured."),
+    ("The IHP SRAM macro", "The FPGA uses the behavioural memory (ROSETTA_SRAM_BEHAV, block RAM); "
+     "the macro, its BIST pins and its 0.92 ns hold need are ASIC-only."),
+    ("ASIC timing at 60 MHz", "FPGA timing closure says nothing about the IHP gate-level paths; "
+     "that is the layout flow's STA."),
+    ("Asynchronous reset release", "The harness releases rst_n between chip edges (clock stopped); "
+     "the reset synchroniser's behaviour with a release near a clock edge is not exercised."),
+    ("Synchroniser metastability", "Every lockstep input changes between chip edges; only the async "
+     "UART input (one ui pin) is truly asynchronous, and metastability resolution is not "
+     "observable."),
+    ("ena input", "Tiny Tapeout's ena is unused by the design (top.md)."),
+    ("Host SPI at other rates or with an asynchronous SCLK", "The lockstep host engine plays "
+     "exactly the Verilator harness's f_clk/16 mode-0 frames, synchronous to the chip clock."),
+]
+
+
+def feature_ids() -> set:
+    return {f for _, f, _ in FEATURES}

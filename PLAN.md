@@ -24,17 +24,19 @@ Deadline: **18 January 2027**. Target submission: **17 January**.
 
 ## Scope
 
-**Target set by the user on 21 Nov: the chip must be able to emulate every
-protocol the competition page names.** This replaces the earlier ladder in
-which USB and Ethernet were optional rungs.
+**Target set by the user on 21 Nov: the chip must show UART, SPI, I2C,
+low-speed USB, 10 Mbit Ethernet and CAN.** (The user first asked for all
+nine protocols on the competition page, then cut JTAG, SWD and PS/2 the
+same day.) This replaces the earlier ladder in which USB and Ethernet were
+optional rungs.
 
 | Protocol | Status (21 Nov) |
 |---|---|
 | UART, SPI, I2C, every role | compiled from descriptions, pass on the RTL in simulation; UART and SPI ran on the FPGA from hand-written programs; I2C never on hardware |
-| PS/2, JTAG, SWD | not started; expected to need compiler work only (to be confirmed by the study) |
 | Low-speed USB | not started; hardware features designed in, nothing run end to end |
 | CAN | not started; bitwise arbitration may need hardware |
 | 10 Mbit Ethernet | not started; receive margin is too thin with single-edge sampling at 60 MHz, a hardware change is likely; frames limited to about 500 bytes by the lane data region |
+| JTAG, SWD, PS/2 | out of scope (user, 21 Nov) |
 
 The six abilities (speak, prove, listen, stress, translate, imitate) remain
 the framing; speak, listen and prove exist today.
@@ -176,4 +178,5 @@ memory wrappers, top level.
 - 15 Nov: **session end. Open list:** (1) the recipe fragility above; (2) merge the memory input buffers once (1) is solved; (3) reset determinism proof T2 (bounded to 12); (4) RTL versus netlist equivalence, not started; (5) full-chip bring-up through SPI frames in the solver (timed out); (6) documents out of step with rulings (`isa.md` layouts, lane.md statements corrected by ruling 56, top.md macro path, "SETM halves" still listed as unruled); (7) about 80 overloaded standard-cell nets; (8) I2C has never run on the FPGA; (9) design decisions parked: SPI target loses prepared words on early deselect, no `cut` records; (10) housekeeping: `_opam/`, empty `JaneST-ASIC` stub folder, root-owned files on the board. Nothing is running locally.
 - 21 Nov: **GitHub's gds build failed on c2ef264 and 14dcb9c** (the two commits after the hazard fix); 8f26af3 had passed. Cause not yet confirmed (log not retrievable); consistent with the layout fragility. Local rebuild of the current commit started.
 - 21 Nov: **new direction from the user**: all nine protocols on the competition page are required (see Scope), and rule 6 (proofs, then the board, then the ASIC flow). Started: a protocol feasibility and gap study for USB, Ethernet, CAN, JTAG, SWD and PS/2 on the real RTL (report to `study/protocols/REPORT.md`); an FPGA regression gate on the PYNQ-Z1 that runs the compiler's scenarios on the board with a hardware coverage record for every block and mode.
+- 21 Nov: **scope narrowed by the user to six protocols**: UART, SPI, I2C, low-speed USB, 10 Mbit Ethernet, CAN. JTAG, SWD and PS/2 dropped. The user confirmed rule 6 and the reading of "each block on the board": every block and mode exercised through the whole chip with targeted programs, no per-block bitstreams. Study and FPGA workers told.
 

@@ -100,9 +100,10 @@ connect_bd_net [get_bd_pins clk_wiz/clk_out1]  [get_bd_pins rst60/slowest_sync_c
 connect_bd_net [get_bd_pins ps7/FCLK_RESET0_N] [get_bd_pins rst60/ext_reset_in]
 connect_bd_net [get_bd_pins clk_wiz/locked]    [get_bd_pins rst60/dcm_locked]
 
-# AXI interconnect: 1 master (PS7 GP0) -> 21 slaves, all on the 60 MHz clock
-# (16 AXI GPIOs, AXI Quad SPI, capture BRAM controller, 3 trace BRAM controllers)
-set nslaves 21
+# AXI interconnect: 1 master (PS7 GP0) -> 28 slaves, all on the 60 MHz clock
+# (21 AXI GPIOs, AXI Quad SPI, capture BRAM controller, 3 trace BRAM
+# controllers, the waveform-player and async-line BRAM controllers)
+set nslaves 28
 set ic [create_bd_cell -type ip -vlnv [ipvlnv axi_interconnect] axi_ic]
 set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI $nslaves] $ic
 connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP0] [get_bd_intf_pins axi_ic/S00_AXI]
@@ -134,6 +135,11 @@ set gpios {
     gpio_fault 1 1 0x00000000 0x00000000 0x412D0000
     gpio_cyc   0 0 0x00000000 0x00000000 0x412E0000
     gpio_async 1 1 0x00000000 0x00000000 0x412F0000
+    gpio_wave  1 0 0x00000000 0x00000000 0x41300000
+    gpio_chmap 1 1 0x00000000 0x00000000 0x41310000
+    gpio_pull  1 0 0x00000000 0x00000000 0x41320000
+    gpio_can   1 1 0x00000000 0x00000000 0x41330000
+    gpio_line  1 0 0x000007FE 0x00000000 0x41340000
 }
 set mi 0
 foreach {name o1 o2 d1 d2 base} $gpios {
@@ -197,12 +203,31 @@ for {set t 0} {$t < 3} {incr t} {
     connect_bd_intf_net [get_bd_intf_pins trc${t}_bram_ctrl/BRAM_PORTA] [get_bd_intf_pins trc${t}_bram/BRAM_PORTA]
 }
 
+# Waveform-player queue (lockstep stimulus) and async-line event buffer: the
+# processor writes through AXI BRAM controllers, the harness reads port B
+# (the line buffer's port B runs on the harness's 200 MHz line clock)
+foreach {nm base} {wave 0x42030000 line 0x42040000} {
+    set bc [create_bd_cell -type ip -vlnv [ipvlnv axi_bram_ctrl] ${nm}_bram_ctrl]
+    set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.SINGLE_PORT_BRAM {1} CONFIG.DATA_WIDTH {32}] $bc
+    connect_bd_intf_net [get_bd_intf_pins [format axi_ic/M%02d_AXI $mi]] [get_bd_intf_pins ${nm}_bram_ctrl/S_AXI]
+    lappend clk60_pins ${nm}_bram_ctrl/s_axi_aclk
+    lappend rstn_pins  ${nm}_bram_ctrl/s_axi_aresetn
+    set addr(${nm}_bram_ctrl) [list ${nm}_bram_ctrl/S_AXI/Mem0 $base 64K]
+    incr mi
+    set bm [create_bd_cell -type ip -vlnv [ipvlnv blk_mem_gen] ${nm}_bram]
+    set_property -dict [list CONFIG.Memory_Type {True_Dual_Port_RAM} CONFIG.use_bram_block {BRAM_Controller} \
+        CONFIG.Enable_B {Use_ENB_Pin} CONFIG.Use_RSTB_Pin {true}] $bm
+    connect_bd_intf_net [get_bd_intf_pins ${nm}_bram_ctrl/BRAM_PORTA] [get_bd_intf_pins ${nm}_bram/BRAM_PORTA]
+}
+
 # The harness (module reference; instantiates rosetta_chip -> the TT top)
 set h [create_bd_cell -type module -reference rosetta_harness harness]
 connect_bd_intf_net [get_bd_intf_pins harness/CAP_BRAM] [get_bd_intf_pins cap_bram/BRAM_PORTB]
 for {set t 0} {$t < 3} {incr t} {
     connect_bd_intf_net [get_bd_intf_pins harness/TRC${t}_BRAM] [get_bd_intf_pins trc${t}_bram/BRAM_PORTB]
 }
+connect_bd_intf_net [get_bd_intf_pins harness/WAVE_BRAM] [get_bd_intf_pins wave_bram/BRAM_PORTB]
+connect_bd_intf_net [get_bd_intf_pins harness/LINE_BRAM] [get_bd_intf_pins line_bram/BRAM_PORTB]
 lappend clk60_pins harness/clk60
 lappend rstn_pins  harness/aresetn
 connect_bd_net [get_bd_pins clk_wiz/clk_out2] [get_bd_pins harness/clk60_raw]
@@ -242,6 +267,16 @@ foreach {gpio pin harness_port} {
     gpio_cyc   gpio2_io_i  cyc_hi
     gpio_async gpio_io_o   async_inc
     gpio_async gpio2_io_o  async_cmd
+    gpio_wave  gpio_io_o   wave_wp
+    gpio_wave  gpio2_io_i  wave_status
+    gpio_chmap gpio_io_o   chmap_lo
+    gpio_chmap gpio2_io_o  chmap_hi
+    gpio_pull  gpio_io_o   pulls
+    gpio_pull  gpio2_io_i  contention
+    gpio_can   gpio_io_o   can_cfg
+    gpio_can   gpio2_io_o  can_masks
+    gpio_line  gpio_io_o   line_ctrl
+    gpio_line  gpio2_io_i  line_status
 } {
     connect_bd_net [get_bd_pins $gpio/$pin] [get_bd_pins harness/$harness_port]
 }

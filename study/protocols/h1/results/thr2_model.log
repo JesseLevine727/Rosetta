@@ -1,0 +1,6 @@
+DCD   0.0 ns: thresholds high=5 low=5: clean 30/30, uniform jitter passing 30/30 up to 9 ns
+DCD  10.0 ns: thresholds high=6 low=5: clean 30/30, uniform jitter passing 30/30 up to 4 ns
+DCD  16.5 ns: thresholds high=6 low=4: clean 30/30, uniform jitter passing 30/30 up to 8 ns
+DCD  20.0 ns: thresholds high=6 low=4: clean 30/30, uniform jitter passing 30/30 up to 6 ns
+DCD  27.0 ns: thresholds high=7 low=4: clean 30/30, uniform jitter passing 30/30 up to 2 ns
+DCD  33.0 ns: thresholds high=7 low=3: clean 30/30, uniform jitter passing 30/30 up to None ns

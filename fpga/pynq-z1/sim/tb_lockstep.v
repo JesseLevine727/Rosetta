@@ -21,6 +21,13 @@ module tb_lockstep;
     reg [31:0] trig_mask = 0, trig_value = 0, cap_cfg = 0;
     reg [31:0] ls_ctrl = 0, run_n = 0, host_cmd = 0, host_data = 0, nets = 0, trace_rp = 0;
     reg [31:0] skew_lo = 0, skew_hi = 0, fault_off = 0, fault_len = 0, async_inc = 0, async_cmd = 0;
+    reg [31:0] wave_wp = 0, chmap_lo = 0, chmap_hi = 0, pulls = 0, can_cfg = 0, can_masks = 0;
+    reg [31:0] line_ctrl = 32'h7FE;
+    wire [31:0] wave_status, contention, line_status;
+    wire w_clk, w_rst, w_en, l_clk, l_rst, l_en;
+    wire [3:0] w_we, l_we;
+    wire [31:0] w_addr, w_din, l_addr, l_din;
+    reg  [31:0] w_dout = 0, l_dout = 0;
     wire [31:0] status, chip_out, cap_status, pads, chip_cycles, freq_sys, freq_fclk;
     wire [31:0] ls_status, host_rdata, cyc_lo, cyc_hi;
     wire spi_miso;
@@ -49,6 +56,13 @@ module tb_lockstep;
         .host_data(host_data), .host_rdata(host_rdata), .nets(nets), .trace_rp(trace_rp),
         .skew_lo(skew_lo), .skew_hi(skew_hi), .fault_off(fault_off), .fault_len(fault_len),
         .cyc_lo(cyc_lo), .cyc_hi(cyc_hi), .async_inc(async_inc), .async_cmd(async_cmd),
+        .wave_wp(wave_wp), .wave_status(wave_status), .chmap_lo(chmap_lo), .chmap_hi(chmap_hi),
+        .pulls(pulls), .contention(contention), .can_cfg(can_cfg), .can_masks(can_masks),
+        .line_ctrl(line_ctrl), .line_status(line_status),
+        .wave_bram_clk(w_clk), .wave_bram_rst(w_rst), .wave_bram_en(w_en), .wave_bram_we(w_we),
+        .wave_bram_addr(w_addr), .wave_bram_din(w_din), .wave_bram_dout(w_dout),
+        .line_bram_clk(l_clk), .line_bram_rst(l_rst), .line_bram_en(l_en), .line_bram_we(l_we),
+        .line_bram_addr(l_addr), .line_bram_din(l_din), .line_bram_dout(l_dout),
         .spi_sck(1'b0), .spi_mosi(1'b0), .spi_miso(spi_miso), .spi_ss_n(1'b1),
         .cap_bram_clk(cap_bram_clk), .cap_bram_rst(cap_bram_rst), .cap_bram_en(cap_bram_en),
         .cap_bram_we(cap_bram_we), .cap_bram_addr(cap_bram_addr), .cap_bram_din(cap_bram_din),
@@ -69,6 +83,10 @@ module tb_lockstep;
     always @(posedge clk60) if (t_en[0] && t_we0 == 4'hf) m0[t_addr0[15:2]] <= t_din0;
     always @(posedge clk60) if (t_en[1] && t_we1 == 4'hf) m1[t_addr1[15:2]] <= t_din1;
     always @(posedge clk60) if (t_en[2] && t_we2 == 4'hf) m2[t_addr2[15:2]] <= t_din2;
+    reg [31:0] mw [0:16383];
+    always @(posedge w_clk) if (w_en) w_dout <= mw[w_addr[15:2]];
+    reg [31:0] ml [0:16383];
+    always @(posedge l_clk) if (l_en) l_dout <= ml[l_addr[15:2]];
 
     // ---------------------------------------------------------------- "processor"
     task waitc(input integer n); begin repeat (n) @(posedge clk60); end endtask
@@ -77,6 +95,8 @@ module tb_lockstep;
 
     // software copy of the trace (as the board server keeps it)
     integer sw_n = 0;
+    integer wq_rem = 0;                 // waveform cycles still queued (as the server tracks it)
+    task wq_used(input integer n); begin wq_rem = (wq_rem > n) ? wq_rem - n : 0; end endtask
     reg [47:0] sw_c [0:262143];
     reg [39:0] sw_p [0:262143];
     task drain;
@@ -100,6 +120,7 @@ module tb_lockstep;
                 tgl(0);
                 while (ls_status[0]) begin waitc(50); drain; end
                 wait_idle;
+                wq_used(n);
             end
             drain;
         end
@@ -110,11 +131,12 @@ module tb_lockstep;
             tgl(1);
             while (ls_status[1]) begin waitc(50); drain; end
             wait_idle;
+            wq_used(cmd[7] ? 792 : 664);
             drain;
         end
     endtask
 
-    integer nnets = 0, nwires = 0;
+    integer nnets = 0, nwires = 0, ncan = 0, a3, a4;
     integer fin, fout, r, a1, a2, i;
     reg [8*80-1:0] line;
     reg [8*256-1:0] cmds_path, out_path;
@@ -163,6 +185,38 @@ module tb_lockstep;
                         fault_off <= a1; fault_len <= a2; waitc(2); tgl(8); $fdisplay(fout, "ok");
                     end
                     "C": begin $fdisplay(fout, "%0d", {cyc_hi[15:0], cyc_lo}); end
+                    "M": begin
+                        r = $sscanf(line, "M %d %d", a1, a2);
+                        if (a1 < 4) chmap_lo[8*a1 +: 5] <= (a2 < 0) ? 5'd0 : {1'b1, a2[3:0]};
+                        else        chmap_hi[8*(a1-4) +: 5] <= (a2 < 0) ? 5'd0 : {1'b1, a2[3:0]};
+                        waitc(2); $fdisplay(fout, "ok");
+                    end
+                    "U": begin
+                        r = $sscanf(line, "U %d %d", a1, a2);
+                        pulls[a1] <= (a2 >= 0); pulls[16 + a1] <= (a2 == 1);
+                        waitc(2); $fdisplay(fout, "ok");
+                    end
+                    "v": begin                  // one run of a V command (pre-split): no reply
+                        r = $sscanf(line, "v %h %h %d", a1, a2, a3);
+                        mw[wave_wp[13:0]] = {a1[7:0], a2[7:0], a3[15:0]};
+                        @(posedge clk60); #1 wave_wp[15:0] = wave_wp[15:0] + 1;
+                        wq_rem = wq_rem + a3;
+                    end
+                    "V": begin waitc(2); $fdisplay(fout, "ok"); end
+                    "P": begin r = $sscanf(line, "P %d", a1); run(wq_rem + a1); $fdisplay(fout, "ok"); end
+                    "K": begin $fdisplay(fout, "%0d", contention); end
+                    "T": begin r = $sscanf(line, "T %d", a1); ls_ctrl[3] <= (a1 != 0); waitc(2); $fdisplay(fout, "ok"); end
+                    "Y": begin                  // pre-split: "Y dtx drx n m0 r0 m1 r1 m2 r2 m3 r3"
+                        r = $sscanf(line, "Y %d %d %d", a1, a2, a3);
+                        can_cfg[7:0] <= a1; can_cfg[15:8] <= a2;
+                        can_cfg[19:16] <= (a3 == 0) ? 4'h0 : (a3 == 1) ? 4'h1 : (a3 == 2) ? 4'h3 : (a3 == 3) ? 4'h7 : 4'hF;
+                        $fdisplay(fout, "ok");
+                    end
+                    "y": begin                  // node k: "y k mask rx"
+                        r = $sscanf(line, "y %d %h %d", a1, a2, a3);
+                        can_masks[8*a1 +: 8] <= a2[7:0]; can_cfg[20 + 3*a1 +: 3] <= a3[2:0];
+                        waitc(2);
+                    end
                     "D": begin
                         drain;
                         for (i = 0; i < sw_n; i = i + 1)

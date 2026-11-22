@@ -79,6 +79,8 @@ FEATURES = [
     ("rosetta_field", "field.crc_flag", "CRC update flag"),
     ("rosetta_field", "field.stuff_flag", "stuffing flag"),
     ("rosetta_field", "field.src_mem", "MEM as a field source"),
+    ("rosetta_field", "field.dst_mem", "MEM as a field destination (R3 post-increment)"),
+    ("rosetta_field", "field.src_imm_marker", "IMM source as a length marker (partial last word)"),
     ("rosetta_field", "field.raw_drive", "RAW DRIVE"),
     ("rosetta_field", "field.raw_sample", "RAW SAMPLE"),
     ("rosetta_field", "field.abandon", "a field abandoned by an event"),
@@ -152,6 +154,16 @@ FEATURES = [
     ("top", "top.reset", "reset and reset synchroniser"),
     ("top", "top.four_lanes", "four lanes at once with the host"),
     ("top", "top.async_input", "an asynchronous far end on a pin (board only)"),
+    ("protocols", "proto.usb_device", "low-speed USB device: NAK, DATA1 + ACK, SETUP/DATA0 + ACK, address filter"),
+    ("protocols", "proto.usb_listener", "low-speed USB listener: every packet both ways"),
+    ("protocols", "proto.usb_turnaround", "USB turnaround within 2..7.5 bit times at host clock 0, +-1.5 %"),
+    ("protocols", "proto.eth_tx", "10BASE-T transmit: Manchester, CRC-32 FCS, TP_IDL, link pulses"),
+    ("protocols", "proto.eth_rx", "10BASE-T receive: SFD seek, payload to memory, CRC-32 residue"),
+    ("protocols", "proto.eth_rx_margin", "10BASE-T receive margin against an asynchronous source (board only)"),
+    ("protocols", "proto.can_arbitration", "CAN: two-lane nodes, arbitration, loser backs off, ACK, retransmit"),
+    ("protocols", "proto.can_ack_only", "CAN ACK-only node"),
+    ("protocols", "proto.can_listen_only", "CAN listen-only node"),
+    ("protocols", "proto.async_far_ends", "USB host and CAN node on their own clock (board only)"),
 ]
 
 # The compiled-protocol scenarios (test id -> features the test's checks
@@ -180,7 +192,43 @@ _I2C = ["tick.BAUD", "tick.EDGE", "tick.clock_out", "tick.clock_idle_high", "tic
         "xbar.uio_oe", "xbar.uio_in", "host.write", "host.read", "mem.prog_load",
         "mem.queues", "chan.timestamp", "top.reset", "seq.abort"]
 
+_USB = ["proto.usb_device", "proto.usb_listener", "proto.usb_turnaround", "tick.RECOVER", "tick.BAUD",
+        "coding.rx.nrzi", "coding.tx.nrzi", "coding.diff_in", "coding.diff_out", "stuff.ones", "stuff.n6",
+        "field.stuff_flag", "field.seek", "field.lsb", "field.crc_flag", "crc.w5", "crc.w16",
+        "crc.init_ones", "crc.xorout", "crc.expect", "crc.crcchk", "events.bothlow", "events.level",
+        "events.b_low", "events.k_window", "events.vector", "seq.wait_event", "seq.mem_ld_st",
+        "mem.data_lane", "field.dst_mem", "field.src_mem", "seq.cap_records", "pins.pin", "pins.pin_wait",
+        "xbar.uio_out", "xbar.uio_oe", "xbar.uio_in", "lane.0", "lane.1", "mem.qcfg_sizes"]
+_ETH_TX = ["proto.eth_tx", "proto.eth_rx", "tick.BAUD", "tick.PULSE", "tick.thr0", "coding.tx.manchester",
+           "coding.rx.manchester", "coding.diff_out", "field.lsb", "field.crc_flag", "field.src_mem",
+           "field.dst_mem", "field.seek", "crc.w32", "crc.init_ones", "crc.xorout", "crc.crcchk",
+           "cfg.setm_hi", "events.level", "events.k_window", "seq.wait_timeout", "seq.br_queue",
+           "seq.loop", "pins.pin_wait", "lane.0", "lane.2", "mem.qcfg_sizes"]
+_ETH_RX = ["proto.eth_rx", "tick.PULSE", "tick.thr0", "coding.rx.manchester", "field.seek", "field.dst_mem",
+           "field.src_imm_marker", "crc.w32", "crc.crcchk", "events.level", "events.k_window",
+           "seq.movsr", "lane.0"]
+_CAN = ["proto.can_arbitration", "tick.BAUD", "tick.RECOVER", "tick.period2", "coding.data_od",
+        "stuff.equal", "stuff.n5", "stuff.violation_event", "field.stuff_flag", "field.crc_flag",
+        "field.exchange", "field.src_mem", "crc.w15", "crc.init_zero", "crc.expect", "events.level",
+        "events.b_high", "events.b_low", "events.k_window", "events.vector", "seq.abort",
+        "chan.put_get", "chan.get_waits", "chan.br_valid", "xbar.uio_out", "xbar.uio_oe",
+        "xbar.uio_in", "lane.0", "lane.1", "lane.2", "lane.3", "top.four_lanes"]
+_CAN1 = ["tick.RECOVER", "coding.data_od", "stuff.equal", "stuff.n5", "field.stuff_flag",
+         "field.crc_flag", "crc.w15", "crc.expect", "chan.br_valid", "lane.1"]
+
 SCENARIOS = {
+    "test_usb_rtl.UsbOnRtl.test_host_clock_nominal": _USB,
+    "test_usb_rtl.UsbOnRtl.test_host_clock_fast_1p5pct": _USB,
+    "test_usb_rtl.UsbOnRtl.test_host_clock_slow_1p5pct": _USB,
+    "test_eth_rtl.EthOnRtl.test_transmit_loopback": _ETH_TX,
+    "test_eth_rtl.EthOnRtl.test_receive_frame_lengths": _ETH_RX,
+    "test_eth_rtl.EthOnRtl.test_receive_inside_margin": _ETH_RX,
+    "test_eth_rtl.EthOnRtl.test_receive_beyond_margin": _ETH_RX,
+    "test_can_rtl.CanOnRtl.test_arbitration_250k": _CAN,
+    "test_can_rtl.CanOnRtl.test_arbitration_500k": _CAN,
+    "test_can_rtl.CanOnRtl.test_arbitration_1000k": _CAN,
+    "test_can_rtl.CanOnRtl.test_ack_only_node": _CAN1 + ["proto.can_ack_only"],
+    "test_can_rtl.CanOnRtl.test_listen_only_node": _CAN1 + ["proto.can_listen_only"],
     "test_uart_rtl.UartOnRtl.test_parity_none_and_framing_error": _UART,
     "test_uart_rtl.UartOnRtl.test_parity_even_and_wrong_parity": _UART + ["crc.w1"],
     "test_uart_rtl.UartOnRtl.test_parity_odd_and_wrong_parity": _UART + ["crc.w1", "crc.xorout"],
@@ -203,6 +251,12 @@ SCENARIOS = {
 BOARD_ONLY = {
     "board.uart_async_sweep": ["top.async_input", "tick.RECOVER", "events.edge", "lane.1", "lane.2",
                                "seq.cap_records"],
+    "board.eth_rx_sweep": ["top.async_input", "proto.eth_rx", "proto.eth_rx_margin", "tick.PULSE",
+                           "coding.rx.manchester", "crc.w32", "lane.0"],
+    "board.usb_async": ["top.async_input", "proto.usb_device", "proto.usb_turnaround",
+                        "proto.async_far_ends", "lane.0", "lane.1"],
+    "board.can_async": ["top.async_input", "proto.can_arbitration", "proto.async_far_ends",
+                        "lane.0", "lane.1", "lane.2", "lane.3"],
 }
 
 # What this board cannot exercise, and why
@@ -220,6 +274,13 @@ NOT_ON_THIS_BOARD = [
      "UART input (one ui pin) is truly asynchronous, and metastability resolution is not "
      "observable."),
     ("ena input", "Tiny Tapeout's ena is unused by the design (top.md)."),
+    ("Reactive asynchronous far ends", "The board's async lines play scripted event lists: the "
+     "USB host's handshake follows the device's packet milliseconds later (the device waits for "
+     "it), and the async CAN node sends one frame without arbitrating or acknowledging. A far "
+     "end that answers in real time needs an HDL model on its own clock or a real device."),
+    ("Edges closer than 20 ns from an async line", "rh_line.v needs 4 of its 5 ns cycles between "
+     "events; DCD above about 30 ns on 10BASE-T (low pulses under 20 ns) needs a deeper event "
+     "prefetch, or two IDELAYs per line used alternately."),
     ("Host SPI at other rates or with an asynchronous SCLK", "The lockstep host engine plays "
      "exactly the Verilator harness's f_clk/16 mode-0 frames, synchronous to the chip clock."),
 ]

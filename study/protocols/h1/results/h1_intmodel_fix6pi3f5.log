@@ -1,0 +1,5 @@
+D=1: 360/360 frames: output an exact suffix of the encoded bits (all d_r, d_f in [-1,1], start offsets 0-5, 20-64 preamble bits); 39 locked too late for the SFD
+fail -2 1 21 0
+fail -2 1 34 0
+fail -2 1 54 0
+D=2: 760/1000 frames: output an exact suffix of the encoded bits (all d_r, d_f in [-2,2], start offsets 0-5, 20-64 preamble bits); 327 locked too late for the SFD

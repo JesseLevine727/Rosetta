@@ -11,13 +11,17 @@
    discover -s toolchain/tests; the compiled programs are what the tests
    compile), recording a transcript of every chip session.
 4. Runs every chip scenario (toolchain/tests/test_*_rtl.py: compiled UART,
-   SPI, I2C in all roles, and the targeted block tests) on the board in
-   lockstep mode, recording transcripts.
+   SPI, I2C in all roles, the study's USB / 10BASE-T / CAN programs, and the
+   targeted block tests) on the board in lockstep mode, recording
+   transcripts.
 5. Compares the two backends' transcripts session by session: every
    command's reply, including every pin change with its chip cycle, must be
    identical.
-6. Board-only checks: the chip clock frequency, and the UART receiver
-   against an asynchronous far end swept in rate (board_tests.py).
+6. Board-only checks (board_tests.py): the chip clock frequency; the UART
+   receiver against an asynchronous far end swept in rate; the 10BASE-T
+   receive-margin sweep against an asynchronous Manchester source; the USB
+   device against an asynchronous host; the CAN nodes with an asynchronous
+   external node.
 7. Writes results/regress_<date>_<time>/: summary.json, summary.md,
    coverage.md / coverage.json, the test JSONs, transcripts of failing or
    differing sessions, and VCDs of their pin changes.
@@ -45,7 +49,9 @@ DEFINES = ["ROSETTA_SRAM_BEHAV"]
 DEPLOY = {"rosetta.bit": os.path.join(OUT, "rosetta.bit"), "rosetta.hwh": os.path.join(OUT, "rosetta.hwh"),
           "rosetta_board.py": os.path.join(HERE, "python", "rosetta_board.py"),
           "lockstep.py": os.path.join(HERE, "python", "lockstep.py"),
-          "board_server.py": os.path.join(HERE, "python", "board_server.py")}
+          "board_server.py": os.path.join(HERE, "python", "board_server.py"),
+          "farend.py": os.path.join(HERE, "python", "farend.py")}
+REPO_DEPLOY = {"protolines.py": os.path.join("toolchain", "tests", "protolines.py")}   # from the repo
 CLK_PS = 16667                      # one chip cycle in the VCDs
 
 
@@ -159,7 +165,9 @@ def ssh(cmd, timeout=60):
                           capture_output=True, text=True, timeout=timeout)
 
 
-def deploy():
+def deploy(repo):
+    for n, rel in REPO_DEPLOY.items():
+        DEPLOY[n] = os.path.join(repo, rel)
     r = ssh(f"mkdir -p {BOARD_DIR} && cd {BOARD_DIR} && sha256sum {' '.join(DEPLOY)} 2>/dev/null; true")
     if r.returncode != 0:
         raise SystemExit(f"board {BOARD} not reachable: {r.stderr.strip()}")
@@ -429,6 +437,8 @@ def decode_session(path, isa):
                 f.add("crc.expect")
             if v.get("dst") == 5:
                 f.add("seq.cap_records")
+            if v.get("dst") == 7:
+                f.add("field.dst_mem")
         elif op == "RAW":
             f.add("field.raw_drive" if v.get("dir") else "field.raw_sample")
         elif op == "PIN":
@@ -580,7 +590,7 @@ def main():
                (float(s["wns_ns"]) < 0 or float(s["whs_ns"]) < 0)]
         if neg or not b.get("all_constraints_met", False):
             summary["failures"].append(f"timing not met: {neg}")
-    ok_board = step("deploy", deploy) is not None
+    ok_board = step("deploy", lambda: deploy(repo)) is not None
 
     log("Verilator: full toolchain suite")
     v = step("verilator_tests", lambda: run_suite(repo, "verilator", "test*.py", vdir,
@@ -609,13 +619,17 @@ def main():
 
     extra = {}
     if ok_board:
-        log("board: clock and asynchronous UART sweep")
+        log("board: clock and asynchronous far ends (UART sweep, Ethernet receive margin, USB host, CAN node)")
 
         def board_only():
             out = os.path.join(res_dir, "board_only.json")
+            stages = "" if args.skip_board_only else (
+                "r['uart_async_sweep'] = t.uart_async_sweep(); json.dump(r, open(%r, 'w'), indent=1); "
+                "r['eth_rx_sweep'] = t.eth_rx_sweep(); json.dump(r, open(%r, 'w'), indent=1); "
+                "r['usb_async'] = t.usb_async(); json.dump(r, open(%r, 'w'), indent=1); "
+                "r['can_async'] = t.can_async(); " % (out, out, out))
             code = ("import json, sys; sys.path.insert(0, %r); import board_tests as t; "
-                    "r = {'clock': t.clock()}; " % HERE
-                    + ("" if args.skip_board_only else "r['uart_async_sweep'] = t.uart_async_sweep(); ")
+                    "r = {'clock': t.clock()}; " % HERE + stages
                     + "json.dump(r, open(%r, 'w'), indent=1)" % out)
             with open(out + ".log", "w") as f:
                 subprocess.run([sys.executable, "-c", code], stdout=f, stderr=subprocess.STDOUT)
@@ -633,6 +647,17 @@ def main():
             extra["board.uart_async_sweep"] = sw["pass"]
             if not sw["pass"]:
                 summary["failures"].append("asynchronous UART sweep failed")
+        for key in ("eth_rx_sweep", "usb_async", "can_async"):
+            st = bo.get(key)
+            if args.skip_board_only:
+                continue
+            if not st:
+                summary["failures"].append(f"board-only stage {key} did not run (see board_only.json.log)")
+                continue
+            summary[key] = {k: v2 for k, v2 in st.items() if k not in ("points",)}
+            extra["board." + key] = st["pass"]
+            if not st["pass"]:
+                summary["failures"].append(f"board-only stage {key} failed")
 
     try:
         cov = coverage(repo, bdir, bd, extra) if os.path.isdir(bdir) else None
@@ -692,6 +717,21 @@ def main():
         s = summary["uart_async_sweep"]
         md.append(f"Async UART sweep: {'pass' if s['pass'] else 'FAIL'}; decodes {s['measured_pass_pct']} % "
                   f"(bit {s.get('measured_pass_bit_cycles')} cycles), compiler window {s['expected_window_pct']} %.")
+    if summary.get("eth_rx_sweep"):
+        e = summary["eth_rx_sweep"]
+        md.append(f"Ethernet receive margin (async source, {e['resolution_ps']} ps grid, "
+                  f"{e['frames_per_point']} frames per point): {'pass' if e['pass'] else 'FAIL'}")
+        for mode, x in e["summary"].items():
+            md.append(f"  {mode}: board last pass {x['board_last_pass_ns']} ns, first fail "
+                      f"{x['board_first_fail_ns']} ns; study {x['study_last_pass_ns']} / {x['study_first_fail_ns']} ns")
+    if summary.get("usb_async"):
+        u = summary["usb_async"]
+        md.append(f"USB async host: {'pass' if u['pass'] else 'FAIL'}; turnarounds (cycles) "
+                  + "; ".join(f"{r['ppm']:+.0f} ppm {r.get('turnarounds')}" for r in u["runs"]))
+    if summary.get("can_async"):
+        c = summary["can_async"]
+        md.append(f"CAN async node: {'pass' if c['pass'] else 'FAIL'}; "
+                  + "; ".join(f"{r['ppm']:+.0f} ppm {r['bus']}" for r in c["runs"]))
     if summary["failures"]:
         md += ["", "## Failures", ""] + [f"- {x}" for x in summary["failures"]]
     open(os.path.join(res_dir, "summary.md"), "w").write("\n".join(md) + "\n")

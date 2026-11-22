@@ -1,0 +1,125 @@
+{
+ "variant": "min2",
+ "frames_per_step": 30,
+ "limits": {
+  "dcd/rand": {
+   "h1": [
+    29.5,
+    30.0
+   ]
+  },
+  "dcd/runs": {
+   "h1": [
+    33.0,
+    33.5
+   ]
+  },
+  "alt/rand": {
+   "h1": [
+    16.5,
+    17.0
+   ]
+  },
+  "alt/runs": {
+   "h1": [
+    16.5,
+    17.0
+   ]
+  },
+  "uniform/rand": {
+   "h1": [
+    10.0,
+    10.5
+   ]
+  },
+  "gauss/rand": {
+   "h1": [
+    4.0,
+    4.5
+   ]
+  },
+  "isi+/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "isi+/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "isi-/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "isi-/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "step8/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "step8/runs": {
+   "h1": [
+    7.5,
+    8.0
+   ]
+  },
+  "step32/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "step32/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "step128/rand": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  },
+  "step128/runs": {
+   "h1": [
+    8.0,
+    8.5
+   ]
+  }
+ },
+ "at_13p5ns_fails_of_200": {
+  "dcd/rand": 0,
+  "dcd/runs": 0,
+  "alt/rand": 0,
+  "alt/runs": 0,
+  "isi+/rand": 155,
+  "isi+/runs": 173,
+  "isi-/rand": 167,
+  "isi-/runs": 164,
+  "step8/rand": 163,
+  "step8/runs": 164,
+  "step32/rand": 148,
+  "step32/runs": 167,
+  "step128/rand": 148,
+  "step128/runs": 164,
+  "uniform/rand": 125
+ },
+ "min_preamble_bits_incl_sfd": {
+  "none@0.0": 27,
+  "dcd@27.0": 41,
+  "uniform@8.0": 27
+ },
+ "link_pulse_bits": 0
+}

@@ -1,0 +1,19 @@
+min2     dcd      rand  H1 ok<=29.5 fail@30.0
+min2     dcd      runs  H1 ok<=33.0 fail@33.5
+min2     alt      rand  H1 ok<=16.5 fail@17.0
+min2     alt      runs  H1 ok<=16.5 fail@17.0
+min2     uniform  rand  H1 ok<=10.0 fail@10.5
+min2     gauss    rand  H1 ok<=4.0 fail@4.5
+min2     isi+     rand  H1 ok<=8.0 fail@8.5
+min2     isi+     runs  H1 ok<=8.0 fail@8.5
+min2     isi-     rand  H1 ok<=8.0 fail@8.5
+min2     isi-     runs  H1 ok<=8.0 fail@8.5
+min2     step8    rand  H1 ok<=8.0 fail@8.5
+min2     step8    runs  H1 ok<=7.5 fail@8.0
+min2     step32   rand  H1 ok<=8.0 fail@8.5
+min2     step32   runs  H1 ok<=8.0 fail@8.5
+min2     step128  rand  H1 ok<=8.0 fail@8.5
+min2     step128  runs  H1 ok<=8.0 fail@8.5
+802.3 point (A=13.5 ns per crossing; dcd = 27 ns): {'dcd/rand': 0, 'dcd/runs': 0, 'alt/rand': 0, 'alt/runs': 0, 'isi+/rand': 155, 'isi+/runs': 173, 'isi-/rand': 167, 'isi-/runs': 164, 'step8/rand': 163, 'step8/runs': 164, 'step32/rand': 148, 'step32/runs': 167, 'step128/rand': 148, 'step128/runs': 164, 'uniform/rand': 125}
+acquisition: fewest preamble+SFD bits that decode in 60/60 frames: {'none@0.0': 27, 'dcd@27.0': 41, 'uniform@8.0': 27}
+bits produced by 100 link pulses (both polarities): 0

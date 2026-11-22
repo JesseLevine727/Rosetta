@@ -72,6 +72,16 @@ module rosetta_harness #(
     output wire [31:0] cyc_hi,      // gpio_cyc   ch2 (R)  CYC_HI
     input  wire [31:0] async_inc,   // gpio_async ch1 (W)  ASYNC_INC
     input  wire [31:0] async_cmd,   // gpio_async ch2 (W)  ASYNC_CMD
+    input  wire [31:0] wave_wp,     // gpio_wave  ch1 (W)  WAVE_WP
+    output wire [31:0] wave_status, // gpio_wave  ch2 (R)  WAVE_STATUS
+    input  wire [31:0] chmap_lo,    // gpio_chmap ch1 (W)  CHMAP_LO
+    input  wire [31:0] chmap_hi,    // gpio_chmap ch2 (W)  CHMAP_HI
+    input  wire [31:0] pulls,       // gpio_pull  ch1 (W)  PULL
+    output wire [31:0] contention,  // gpio_pull  ch2 (R)  CONTENTION
+    input  wire [31:0] can_cfg,     // gpio_can   ch1 (W)  CAN_CFG
+    input  wire [31:0] can_masks,   // gpio_can   ch2 (W)  CAN_MASKS
+    input  wire [31:0] line_ctrl,   // gpio_line  ch1 (W)  LINE_CTRL
+    output wire [31:0] line_status, // gpio_line  ch2 (R)  LINE_STATUS
 
     // ---- AXI Quad SPI (standard mode, master) ------------------------------
     input  wire        spi_sck,
@@ -151,6 +161,42 @@ module rosetta_harness #(
     (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 TRC2_BRAM DOUT" *)
     input  wire [31:0] trc2_bram_dout,
 
+    // ---- wave BRAM (port B of a true dual-port blk_mem_gen; the harness reads) --
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM CLK" *)
+    (* X_INTERFACE_PARAMETER = "MASTER_TYPE BRAM_CTRL,MEM_ECC NONE,MEM_WIDTH 32,MEM_SIZE 65536,READ_WRITE_MODE READ_WRITE,READ_LATENCY 1" *)
+    (* X_INTERFACE_MODE = "Master" *)
+    output wire        wave_bram_clk,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM RST" *)
+    output wire        wave_bram_rst,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM EN" *)
+    output wire        wave_bram_en,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM WE" *)
+    output wire [3:0]  wave_bram_we,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM ADDR" *)
+    output wire [31:0] wave_bram_addr,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM DIN" *)
+    output wire [31:0] wave_bram_din,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 WAVE_BRAM DOUT" *)
+    input  wire [31:0] wave_bram_dout,
+
+    // ---- line BRAM (port B of a true dual-port blk_mem_gen; the harness reads) --
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM CLK" *)
+    (* X_INTERFACE_PARAMETER = "MASTER_TYPE BRAM_CTRL,MEM_ECC NONE,MEM_WIDTH 32,MEM_SIZE 65536,READ_WRITE_MODE READ_WRITE,READ_LATENCY 1" *)
+    (* X_INTERFACE_MODE = "Master" *)
+    output wire        line_bram_clk,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM RST" *)
+    output wire        line_bram_rst,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM EN" *)
+    output wire        line_bram_en,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM WE" *)
+    output wire [3:0]  line_bram_we,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM ADDR" *)
+    output wire [31:0] line_bram_addr,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM DIN" *)
+    output wire [31:0] line_bram_din,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 LINE_BRAM DOUT" *)
+    input  wire [31:0] line_bram_dout,
+
     // ---- board pins ---------------------------------------------------------
     inout  wire [7:0]  ck_io,       // Arduino IO0..IO7  <-> ui[0..7]
     inout  wire [7:0]  ja,          // PMOD JA            <-  uo[0..7]
@@ -205,7 +251,8 @@ module rosetta_harness #(
     wire        eng_busy_n;
     wire        trc_almost_full;
     wire [31:0] run_rem_n = p_run_go ? run_n : (run_rem - {31'd0, chip_ce && run_rem != 32'd0});
-    wire        ls_want   = (run_rem_n != 32'd0) | eng_busy_n;
+    wire        wave_ready_n;
+    wire        ls_want   = ((run_rem_n != 32'd0) | eng_busy_n) & wave_ready_n;
     wire        bp_stall  = l_bp_en & trc_almost_full;
     always @(posedge clk60) begin
         if (!aresetn) begin
@@ -366,7 +413,8 @@ module rosetta_harness #(
         end
     endgenerate
 
-    assign ui_eff  = in_sel[7:0];
+    wire [7:0]  ui_fin;                 // after waveform channels, pulls, async lines, CAN
+    assign ui_eff  = ui_fin;
 
     // uio pins. A pin in an open-drain net (NETS: four 8-bit pin masks) reads
     // the net: low when any pin of the net has uio_oe = 1 and uio_out = 0,
@@ -383,14 +431,148 @@ module rosetta_harness #(
     wire [7:0]  uio_plain = l_uio_iso ? in_sel[15:8]
                           : ((uio_oe & uio_out) | (~uio_oe & in_sel[15:8]));
     wire [7:0]  uio_res = (in_net & net_val) | (~in_net & uio_plain);
+    wire [7:0]  uio_fin;                // after waveform channels, pulls, async lines, CAN
+    // =========================================================================
+    // Waveform player (lockstep; the Verilator harness's M U V P K commands)
+    // and the asynchronous lines (board only). Per pin p (0-7 ui, 8-15 uio):
+    // the highest waveform channel mapped to p (CHMAP), and the async line
+    // routed to p (LINE_CTRL), which wins over the channels. A ui pin takes the
+    // driving source's value, else its pull (PULL) if set, else its normal
+    // source. A uio pin with a channel, a line or a pull reads the driving
+    // source, else the chip's uio_out while uio_oe = 1, else the pull (or 1).
+    // A chip edge where a channel and the chip both drive a uio pin adds one
+    // per pin to CONTENTION; for the async lines, LINE_STATUS[15:4].
+    // =========================================================================
+    wire [7:0]  wv_d, wv_v;
+    wire        wave_empty;
+    wire [15:0] wave_rp;
+    wire [13:0] wave_raddr;
+    rh_wave #(.AW(14)) u_wave (
+        .clk(clk60), .rstn(aresetn), .ce(chip_ce), .wp(wave_wp[15:0]), .rp(wave_rp),
+        .cur_d(wv_d), .cur_v(wv_v), .ready_n(wave_ready_n), .empty(wave_empty),
+        .bram_en(wave_bram_en), .bram_addr(wave_raddr), .bram_dout(wave_bram_dout));
+    assign wave_bram_clk  = clk60;
+    assign wave_bram_rst  = 1'b0;
+    assign wave_bram_we   = 4'd0;
+    assign wave_bram_din  = 32'd0;
+    assign wave_bram_addr = {16'd0, wave_raddr, 2'b00};
+    assign wave_status    = {wave_rp, 15'd0, wave_empty};
+
+    wire [1:0]  ln_val, ln_drv;
+    wire        ln_busy, ln_ready;
+    wire [13:0] ln_raddr;
+    rh_line #(.AW(14)) u_line (
+        .clk60(clk60), .sysclk(sysclk), .go_tgl(line_ctrl[0]), .n_events(line_ctrl[31:16]),
+        .busy60(ln_busy), .ready60(ln_ready), .val(ln_val), .drv(ln_drv),
+        .bram_clk(line_bram_clk), .bram_en(line_bram_en), .bram_addr(ln_raddr),
+        .bram_dout(line_bram_dout));
+    assign line_bram_rst  = 1'b0;
+    assign line_bram_we   = 4'd0;
+    assign line_bram_din  = 32'd0;
+    assign line_bram_addr = {16'd0, ln_raddr, 2'b00};
+    // LINE_CTRL: [0] go toggle, [5:1] line 0 pin (0-15 pin, 16 CAN external
+    // node, other: off), [10:6] line 1 pin, [31:16] number of events
+    wire [4:0]  ln_pin0 = line_ctrl[5:1], ln_pin1 = line_ctrl[10:6];
+
+    // CHMAP_LO / CHMAP_HI: channel k in byte k (0-3) / k-4 (4-7): [4] mapped, [3:0] pin
+    reg  [15:0] p_wd, p_wv, p_has, l_wd, l_wv, l_has;
+    integer pp, kk;
+    always @(*) begin
+        for (pp = 0; pp < 16; pp = pp + 1) begin
+            p_has[pp] = 1'b0; p_wd[pp] = 1'b0; p_wv[pp] = 1'b0;
+            for (kk = 0; kk < 8; kk = kk + 1)
+                if ((kk < 4 ? chmap_lo[8*kk + 4] : chmap_hi[8*(kk-4) + 4]) &&
+                    (kk < 4 ? chmap_lo[8*kk +: 4] : chmap_hi[8*(kk-4) +: 4]) == pp[3:0]) begin
+                    p_has[pp] = 1'b1;                        // the highest channel wins
+                    p_wd[pp]  = wv_d[kk];
+                    p_wv[pp]  = wv_v[kk];
+                end
+            l_has[pp] = (ln_pin1 == pp) | (ln_pin0 == pp);
+            l_wd[pp]  = (ln_pin1 == pp) ? ln_drv[1] : (ln_pin0 == pp) & ln_drv[0];
+            l_wv[pp]  = (ln_pin1 == pp) ? ln_val[1] : (ln_pin0 == pp) & ln_val[0];
+        end
+    end
+    wire [15:0] pull_on = pulls[15:0], pull_val = pulls[31:16];
+
+    // ui pins
+    wire [7:0]  ui_chan;
+    // uio pins (uio_res from the nets / uio_iso logic below)
+    wire [7:0]  uio_chan;
+    wire [7:0]  cont_bits, cont_ln_bits;
+    generate
+        for (g = 0; g < 8; g = g + 1) begin : g_chan
+            wire ld_ui  = l_has[g] & l_wd[g];
+            wire wd_ui  = p_has[g] & p_wd[g];
+            assign ui_chan[g] = ld_ui ? l_wv[g] : wd_ui ? p_wv[g] : pull_on[g] ? pull_val[g] : in_sel[g];
+            wire ld = l_has[g+8] & l_wd[g+8];
+            wire wd = p_has[g+8] & p_wd[g+8];
+            wire any = p_has[g+8] | l_has[g+8] | pull_on[g+8];
+            assign uio_chan[g] = !any ? uio_res[g]
+                               : ld ? l_wv[g+8] : wd ? p_wv[g+8]
+                               : uio_oe[g] ? uio_out[g] : (pull_on[g+8] ? pull_val[g+8] : 1'b1);
+            assign cont_bits[g]    = wd & uio_oe[g];
+            assign cont_ln_bits[g] = ld & uio_oe[g];
+        end
+    endgenerate
+    reg  [31:0] cont_cnt = 32'd0;
+    reg  [11:0] cont_ln_cnt = 12'd0;
+    always @(posedge clk60) if (chip_ce) begin
+        cont_cnt    <= cont_cnt + cont_bits[0] + cont_bits[1] + cont_bits[2] + cont_bits[3]
+                     + cont_bits[4] + cont_bits[5] + cont_bits[6] + cont_bits[7];
+        cont_ln_cnt <= cont_ln_cnt + cont_ln_bits[0] + cont_ln_bits[1] + cont_ln_bits[2] + cont_ln_bits[3]
+                     + cont_ln_bits[4] + cont_ln_bits[5] + cont_ln_bits[6] + cont_ln_bits[7];
+    end
+    assign contention = cont_cnt;
+
+    // =========================================================================
+    // CAN bus model (the Verilator harness's Y command). CAN_CFG: [7:0] dtx,
+    // [15:8] drx, [19:16] node enables, [31:20] RXD ui pin of nodes 0-3 (3 bits
+    // each); CAN_MASKS: TXD uio pin mask of nodes 0-3 (bytes 0-3). The external
+    // node is waveform channel 7 (dominant while it drives 0), or async line 0
+    // when LINE_CTRL routes it to the bus (pin code 16). The delay lines record
+    // every chip edge from configuration (initial value 1).
+    // =========================================================================
+    wire [7:0]  can_dtx = can_cfg[7:0], can_drx = can_cfg[15:8];
+    wire [3:0]  can_en  = can_cfg[19:16];
+    wire [7:0]  pullm   = uio_oe & ~uio_out;
+    wire        ext_wave = ~(wv_d[7] & ~wv_v[7]);
+    wire        ext_line = (ln_pin0 == 5'd16) ? ~(ln_drv[0] & ~ln_val[0]) : 1'b1;
+    wire [3:0]  net_k, netd_k;
+    generate
+        for (g = 0; g < 4; g = g + 1) begin : g_cannet
+            assign net_k[g] = ~|(pullm & can_masks[8*g +: 8]);
+            reg [255:0] nh = {256{1'b1}};
+            always @(posedge clk60) if (chip_ce) nh <= {nh[254:0], net_k[g]};
+            assign netd_k[g] = (can_dtx == 8'd0) ? net_k[g] : nh[can_dtx - 8'd1];
+        end
+    endgenerate
+    wire        can_bus = ext_wave & ext_line & (&(netd_k | ~can_en));
+    reg  [255:0] bh = {256{1'b1}};
+    always @(posedge clk60) if (chip_ce) bh <= {bh[254:0], can_bus};
+    wire        can_rx = (can_drx == 8'd0) ? can_bus : bh[can_drx - 8'd1];
+    reg  [7:0]  ui_can, uio_can;
+    integer nk;
+    always @(*) begin
+        ui_can  = ui_chan;
+        uio_can = uio_chan;
+        for (nk = 0; nk < 4; nk = nk + 1)
+            if (can_en[nk]) begin
+                ui_can[can_cfg[20 + 3*nk +: 3]] = can_rx;
+                uio_can = (uio_can & ~can_masks[8*nk +: 8]) | (net_k[nk] ? can_masks[8*nk +: 8] : 8'd0);
+            end
+    end
+    assign ui_fin  = ui_can;
+    assign uio_fin = uio_can;
+    assign line_status = {wave_rp, cont_ln_cnt, 1'b0, ln_ready, ln_busy, wave_empty};
+
     wire [47:0] skew = {skew_hi[29:24], skew_hi[21:16], skew_hi[13:8], skew_hi[5:0],
                         skew_lo[29:24], skew_lo[21:16], skew_lo[13:8], skew_lo[5:0]};
     generate
         for (g = 0; g < 8; g = g + 1) begin : g_skew
             reg  [63:0] uh = {64{1'b1}};         // resolved value, one bit per chip edge
             wire [5:0]  d  = skew[6*g +: 6];
-            always @(posedge clk60) if (chip_ce) uh <= {uh[62:0], uio_res[g]};
-            assign uio_eff[g] = (d == 6'd0) ? uio_res[g] : uh[d - 6'd1];
+            always @(posedge clk60) if (chip_ce) uh <= {uh[62:0], uio_fin[g]};
+            assign uio_eff[g] = (d == 6'd0) ? uio_fin[g] : uh[d - 6'd1];
         end
     endgenerate
 
@@ -466,7 +648,7 @@ module rosetta_harness #(
     rh_trace #(.AW(TRC_AW)) u_trace (
         .clk(clk60), .rstn(aresetn), .valid(chip_ce), .cycle(lcyc),
         .pins({uio_eff, uio_oe, uio_out, uo_out, ui_eff}),
-        .flags({6'd0, async_tx, fault_inv}),
+        .flags({4'd0, ln_val, async_tx, fault_inv}),
         .en(l_trace_en), .clear(p_trace_clr), .rp(trace_rp[15:0]),
         .wp(trc_wp), .overflow(trc_overflow), .almost_full(trc_almost_full),
         .first_pending(trc_first),

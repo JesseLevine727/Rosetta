@@ -7,7 +7,9 @@ only, not a test module).
 Both backends speak the same line protocol (toolchain/tests/rtl/rosetta_tb.cpp
 documents it) and behave identically to the chip edge:
 
-* `verilator` (default): the C++ harness rtl/rosetta_tb.cpp around the RTL.
+* `verilator` (default): the C++ harness rtl/rosetta_tb.cpp around the RTL
+  (wires, open-drain nets, skew, a fault, a waveform player on any input
+  pin and a CAN bus model; see its header).
   The build goes to a cache directory outside the repository:
   <ROSETTA_SIM_BUILD or tmp>/rosetta_verilator_<hash of the RTL and harness sources>.
 * `board` (ROSETTA_BACKEND=board): the PYNQ-Z1 FPGA harness in lockstep mode,
@@ -309,10 +311,10 @@ class Chip:
             self._tfile = open(path, "w")
             self.link.log = self._log
         if self.backend == "board":
-            self.link.value("B")                          # new session: reload, reset
+            self.link.value("begin")                      # new session: reload, reset
 
     def _log(self, cmd: str, reply: list[str]) -> None:
-        if self._tfile and cmd != "B":
+        if self._tfile and not cmd[:1].islower():         # board-only commands are lower case
             self._tfile.write(f"> {cmd}\n")
             for r in reply:
                 self._tfile.write(f"{r}\n")
@@ -361,6 +363,54 @@ class Chip:
 
     def cycle(self) -> int:
         return int(self.link.value("C"))
+
+    # -- stimulus (rosetta_tb.cpp header: waveform player, CAN bus model)
+    def map(self, ch: int, pin: int) -> None:
+        """Waveform channel ch (0-7) drives pin (0-7 ui, 8-15 uio; -1 unmaps)."""
+        self.link.ack(f"M {ch} {pin}")
+
+    def pull(self, pin: int, v: int) -> None:
+        """Value of pin when nothing drives it (0, 1; -1 = its normal source)."""
+        self.link.ack(f"U {pin} {v}")
+
+    def wave(self, runs) -> None:
+        """Queue runs (drive mask, value mask, cycles); played one cycle per
+        chip edge from the next command that clocks the chip."""
+        buf = []
+        for d, v, n in runs:
+            while n > 0:
+                k = min(n, 65535)
+                buf.append(f"{d & 0xFF:x} {v & 0xFF:x} {k}")
+                n -= k
+                if len(buf) >= 1000:
+                    self.link.ack("V " + " ".join(buf))
+                    buf = []
+        if buf:
+            self.link.ack("V " + " ".join(buf))
+
+    def play(self, extra: int = 0) -> None:
+        """Run until the waveform queue is empty, then `extra` cycles."""
+        self.link.ack(f"P {int(extra)}")
+
+    def contention(self) -> int:
+        return int(self.link.value("K"))
+
+    def tracing(self, on: bool) -> None:
+        self.link.ack(f"T {1 if on else 0}")
+
+    def canbus(self, dtx: int, drx: int, nodes=((0x03, 3), (0x0C, 4))) -> None:
+        """CAN bus model: nodes = [(TXD uio pin mask, RXD ui pin)]; the
+        external node is waveform channel 7 (dominant while it drives 0)."""
+        self.link.ack(f"Y {dtx} {drx} " + " ".join(f"{m:x} {r}" for m, r in nodes))
+
+    def mem_read(self, lane: int, off: int, n: int) -> list[int]:
+        self.wr(MADDR, 0x200 | (lane << 7) | off)
+        return [self.rd(MDATA) for _ in range(n)]
+
+    def mem_write(self, lane: int, off: int, words) -> None:
+        self.wr(MADDR, 0x200 | (lane << 7) | off)
+        for w in words:
+            self.wr(MDATA, w)
 
     def dump(self, full: bool = False) -> list[tuple]:
         """Pin changes since the last dump: (cycle, uo, ui), or with `full`

@@ -57,7 +57,10 @@ set_false_path -to   [get_ports {ck_io[*] ja[*] jb[*] led[*]}]
 
 ## Frequency-meter references are only crossed through 2-flop synchronisers
 ## (rh_freqmeter, ASYNC_REG); treat them as asynchronous to everything else.
-set_clock_groups -asynchronous -group [get_clocks sysclk]
+## The async far ends (rh_async_uart on sysclk, rh_line on the 200 MHz MMCM
+## clock made from sysclk) are asynchronous to the chip by design: their
+## outputs enter the chip's synchronisers like a real remote device's.
+set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks sysclk]
 set_clock_groups -asynchronous -group [get_clocks clk_fpga_0]
 
 ## AXI Quad SPI marks its pin registers IOB=TRUE; here they drive fabric

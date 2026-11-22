@@ -32,6 +32,10 @@ LS_HOST_ENG = 1 << 16
 LSS_RUN_BUSY, LSS_HOST_BUSY, LSS_OVERFLOW, LSS_F_ARMED, LSS_F_SEEN, LSS_ASYNC_BUSY, LSS_CE, \
     LSS_BP, LSS_FIRST = (1 << i for i in range(9))
 TRC_DEPTH = 16384
+WAVE_DEPTH = 16384
+LINE_DEPTH = 16384
+LINE_OFF = 31                             # LINE_CTRL pin code: line not routed
+LINE_CAN = 16                             # LINE_CTRL pin code: the CAN bus's external node
 HOST_FRAME = {False: 664, True: 792}      # chip cycles of a write / read frame
 ASYNC_CLK = 125_000_000                   # the async UART's reference (board oscillator)
 
@@ -52,6 +56,20 @@ class Lockstep:
         self.nets = []
         self.wires = []
         self.cyc = 0
+        self.freerun = False
+        self._wave_reset()
+
+    def _wave_reset(self):
+        from collections import deque
+        self.wq = deque()                 # queued runs not yet written to the hardware
+        self.wq_rem = 0                   # queued cycles not yet played
+        self.wq_total = 0                 # cycles ever queued
+        self.wq_loaded = 0                # cycles written to the hardware
+        self.wave_wp = 0                  # entries written (mod 65536)
+        self.chmap = [0, 0]
+        self.pulls = 0
+        self.ncan = 0
+        self.line_ctrl = (LINE_OFF << 1) | (LINE_OFF << 6)
 
     # ---------------------------------------------------------- low level
     def _set_ls(self, v):
@@ -111,10 +129,15 @@ class Lockstep:
         b._drive = 0xFF00
         b._src, b._src2, b._loop = 0, 0, [0, 0]
         b._write_routes()
-        for name in ("net", "skew", "fault", "async"):
+        for name in ("net", "skew", "fault", "async", "chmap", "pull", "can"):
             self.g[name].write(CH1, 0)
-        for name in ("skew", "fault", "async"):
+        for name in ("skew", "fault", "async", "chmap", "can"):
             self.g[name].write(CH2, 0)
+        self._wave_reset()
+        self.freerun = False
+        self.wave_wp = self.g["wave"].read(CH2) >> 16      # the player's fetch count after reload
+        self.g["wave"].write(CH1, self.wave_wp)
+        self.g["line"].write(CH1, self.line_ctrl)
         self._ls = self.g["ls"].read(CH1) if not reload else 0
         self._set_ls(LS_HOST_ENG | LS_BP_EN | LS_UIO_ISO | LS_LOOP_DIR | LS_TRACE_EN
                      | (self._ls & (LS_RUN_GO | LS_HOST_GO | LS_TRACE_CLR | LS_CYC_CLR | LS_FAULT_ARM)))
@@ -132,21 +155,82 @@ class Lockstep:
         self.run(10)
 
     # ---------------------------------------------------------- the C++ harness's commands
+    # ---- waveform queue bookkeeping (the C++ harness plays one queued cycle
+    # per chip edge; the hardware queue holds 16384 runs, so long waves are
+    # streamed: a clocked command never runs past the runs already loaded)
+    def _wave_space(self):
+        rp = self.g["wave"].read(CH2) >> 16
+        return WAVE_DEPTH - 4 - ((self.wave_wp - rp) & 0xFFFF)
+
+    def _wave_fill(self):
+        if not self.wq:
+            return
+        room = self._wave_space()
+        if room <= 0:
+            return
+        n = min(room, len(self.wq))
+        words = [self.wq.popleft() for _ in range(n)]
+        a = self.b.wavemem.array
+        i0 = self.wave_wp % WAVE_DEPTH
+        first = min(n, WAVE_DEPTH - i0)
+        a[i0:i0 + first] = np.array(words[:first], dtype=np.uint32)
+        if first < n:
+            a[:n - first] = np.array(words[first:], dtype=np.uint32)
+        self.wq_loaded += sum(w & 0xFFFF for w in words)
+        self.wave_wp = (self.wave_wp + n) & 0xFFFF
+        self.g["wave"].write(CH1, self.wave_wp)
+
+    def _wave_loaded_left(self):
+        return self.wq_loaded - (self.wq_total - self.wq_rem)
+
+    def _wave_used(self, edges):
+        self.wq_rem = max(0, self.wq_rem - edges)
+
     def run(self, n):                                   # R n
         n = int(n)
-        if n > 0:
-            self.g["run"].write(CH1, n)
+        if self.freerun:
+            time.sleep(n / 60e6)
+            self.drain()
+            return
+        while n > 0:
+            self._wave_fill()
+            k = n if not self.wq else min(n, self._wave_loaded_left())
+            if k <= 0:
+                raise LockstepError("waveform queue cannot be streamed")
+            self.g["run"].write(CH1, k)
             self._toggle(LS_RUN_GO)
-            self.cyc += n
-            self._wait_cycle(self.cyc, LSS_RUN_BUSY, f"run {n}")
+            self.cyc += k
+            self._wait_cycle(self.cyc, LSS_RUN_BUSY, f"run {k}")
+            self._wave_used(k)
+            n -= k
         self.drain()
 
     def _frame(self, cmd, data):
+        edges = HOST_FRAME[bool(cmd & 0x80)]
+        self._wave_fill()
+        if self.wq and self._wave_loaded_left() < edges:
+            raise LockstepError("waveform queue too fragmented to stream through a host frame")
         self.g["run"].write(CH2, cmd & 0xFF)
         self.g["host"].write(CH1, data & 0xFFFFFFFF)
         self._toggle(LS_HOST_GO)
-        self.cyc += HOST_FRAME[bool(cmd & 0x80)]
-        self._wait_cycle(self.cyc, LSS_HOST_BUSY, f"host frame {cmd:#04x}")
+        if self.freerun:
+            # the engine starts within a few clk60 cycles of the toggle; a
+            # frame lasts 11-13 us, longer than one register read
+            t_end = time.monotonic() + self.timeout
+            seen = False
+            while True:
+                busy = self.status() & LSS_HOST_BUSY
+                seen |= bool(busy)
+                if seen and not busy:
+                    break
+                if not seen and time.monotonic() > t_end - self.timeout + 0.001:
+                    break                                   # missed the busy window: done
+                if time.monotonic() > t_end:
+                    raise LockstepError("host frame timeout (free-running)")
+        else:
+            self.cyc += edges
+            self._wait_cycle(self.cyc, LSS_HOST_BUSY, f"host frame {cmd:#04x}")
+            self._wave_used(edges)
         self.drain()
 
     def host_write(self, addr, data):                   # W a d
@@ -191,9 +275,96 @@ class Lockstep:
 
     def cycle(self):                                    # C
         c = self.hw_cycle()
+        if self.freerun:
+            return c
         if c != self.cyc:
             raise LockstepError(f"cycle counter {c}, expected {self.cyc}")
         return c
+
+    # ---- the C++ harness's stimulus commands
+    def map(self, ch, pin):                             # M ch pin
+        if not (0 <= ch < 8 and -1 <= pin < 16):
+            raise LockstepError("M ch pin")
+        k, sh = divmod(ch, 4)
+        v = 0 if pin < 0 else (0x10 | pin)
+        self.chmap[k] = (self.chmap[k] & ~(0xFF << 8 * sh)) | (v << 8 * sh)
+        self.g["chmap"].write(CH1 if k == 0 else CH2, self.chmap[k])
+
+    def pull(self, pin, v):                             # U pin v
+        if not (0 <= pin < 16 and v in (-1, 0, 1)):
+            raise LockstepError("U pin v")
+        self.pulls &= ~((1 << pin) | (1 << (16 + pin)))
+        if v >= 0:
+            self.pulls |= (1 << pin) | (v << (16 + pin))
+        self.g["pull"].write(CH1, self.pulls)
+
+    def wave(self, runs):                               # V d v n ...
+        for d, v, n in runs:
+            if not 1 <= n <= 65535:
+                raise LockstepError("V run length 1..65535")
+            self.wq.append((d & 0xFF) << 24 | (v & 0xFF) << 16 | n)
+            self.wq_rem += n
+            self.wq_total += n
+        self._wave_fill()
+
+    def play(self, extra):                              # P n
+        self.run(self.wq_rem + int(extra))
+
+    def contention(self):                               # K
+        return self.g["pull"].read(CH2)
+
+    def tracing(self, on):                              # T 0|1
+        self._set_ls((self._ls | LS_TRACE_EN) if on else (self._ls & ~LS_TRACE_EN))
+
+    def canbus(self, dtx, drx, nodes):                  # Y dtx drx [mask rx]...
+        if not (0 <= dtx <= 255 and 0 <= drx <= 255 and len(nodes) <= 4):
+            raise LockstepError("Y dtx drx [mask rx]...")
+        cfg, masks = dtx | drx << 8, 0
+        for k, (m, r) in enumerate(nodes):
+            if not 0 <= r <= 7:
+                raise LockstepError("Y: RXD pin 0..7")
+            cfg |= 1 << (16 + k) | r << (20 + 3 * k)
+            masks |= (m & 0xFF) << 8 * k
+        self.g["can"].write(CH2, masks)
+        self.g["can"].write(CH1, cfg)
+
+    # ---- asynchronous lines (board only; rh_line.v)
+    def line_route(self, pin0, pin1=LINE_OFF):
+        self.line_ctrl = (self.line_ctrl & ~0x7FE) | (pin0 & 31) << 1 | (pin1 & 31) << 6
+        self.g["line"].write(CH1, self.line_ctrl)
+
+    def line_play(self, words, timeout=5.0):
+        """Load event words and play them (the chip clock must free-run)."""
+        n = len(words)
+        if not 1 <= n <= LINE_DEPTH:
+            raise LockstepError(f"line events: 1..{LINE_DEPTH}")
+        if not self.g["line"].read(CH2) >> 2 & 1:
+            raise LockstepError("line clock not ready (MMCM / IDELAYCTRL)")
+        self.b.linemem.array[:n] = np.asarray(words, dtype=np.uint32)
+        self.line_ctrl = (self.line_ctrl & 0x7FF) | n << 16
+        self.g["line"].write(CH1, self.line_ctrl)
+        self.line_ctrl ^= 1
+        self.g["line"].write(CH1, self.line_ctrl)          # go
+        t_end = time.monotonic() + timeout
+        time.sleep(5e-6)
+        while self.g["line"].read(CH2) >> 1 & 1:
+            if time.monotonic() > t_end:
+                raise LockstepError("line playback did not finish")
+        self.drain()
+
+    def set_freerun(self, on):
+        b = self.b
+        from rosetta_board import C_CLK_RUN
+        if on:
+            b._set_ctrl(b._ctrl | C_CLK_RUN)
+            self.freerun = True
+        else:
+            b._set_ctrl(b._ctrl & ~C_CLK_RUN)
+            time.sleep(0.001)
+            self.freerun = False
+            self.cyc = self.hw_cycle()
+        self.drain()
+        return self.hw_cycle()
 
     def drain(self):
         st = self.status()

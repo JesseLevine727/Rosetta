@@ -33,9 +33,13 @@ GPIO_BASE = {   # AXI GPIO instances (dual channel: ch1 @ +0x0, ch2 @ +0x8)
     # lockstep mode (lockstep.py, README "Lockstep mode")
     "ls": 0x41280000, "run": 0x41290000, "host": 0x412A0000, "net": 0x412B0000,
     "skew": 0x412C0000, "fault": 0x412D0000, "cyc": 0x412E0000, "async": 0x412F0000,
+    # waveform player, pulls, CAN bus model, async lines
+    "wave": 0x41300000, "chmap": 0x41310000, "pull": 0x41320000, "can": 0x41330000,
+    "line": 0x41340000,
 }
 TRC_BASE = [0x42000000, 0x42010000, 0x42020000]   # change-trace words 0, 1, 2
 TRC_DEPTH = 16384
+WAVE_BASE, LINE_BASE, WAVE_DEPTH, LINE_DEPTH = 0x42030000, 0x42040000, 16384, 16384
 SPI_BASE = 0x41E00000
 BRAM_BASE = 0x40000000
 CAP_DEPTH = 16384
@@ -217,6 +221,8 @@ class RosettaBoard:
         self.spi = MMIO(base("spi", SPI_BASE), 0x10000)
         self.bram = MMIO(base("cap_bram_ctrl", BRAM_BASE), CAP_DEPTH * 4)
         self.trc = [MMIO(base(f"trc{t}_bram_ctrl", a), TRC_DEPTH * 4) for t, a in enumerate(TRC_BASE)]
+        self.wavemem = MMIO(base("wave_bram_ctrl", WAVE_BASE), WAVE_DEPTH * 4)
+        self.linemem = MMIO(base("line_bram_ctrl", LINE_BASE), LINE_DEPTH * 4)
         st = self.status_word()
         if (st >> 24) != 0x52:
             raise RuntimeError(f"harness ID mismatch (STATUS={st:#010x}); wrong bitstream?")

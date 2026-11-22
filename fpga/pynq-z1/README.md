@@ -47,7 +47,7 @@ cd /home/elfo/Documents/Rosetta/fpga/pynq-z1
 ./regress.py --force-build       # rebuild even if nothing changed;  --no-build: never build
 ```
 
-What one run does (about 4 minutes when no build is needed, plus about 8
+What one run does (about 8 minutes when no build is needed, plus about 9
 minutes for a build):
 
 1. **Build if needed.** A key over the RTL sources (`info.yaml` list), the
@@ -69,10 +69,17 @@ minutes for a build):
    and every reply, including every pin change with its chip cycle) must be
    identical on both backends. A difference names the session, the command
    and the first differing line.
-6. **Board-only**: the chip clock by the three meters, and the compiled UART
-   receiver and listener against the asynchronous far end, swept from -7 %
-   to +7 % around 115200 Bd (`board_tests.py` states the expected window,
-   taken from the compiler's manifest).
+6. **Board-only** (`board_tests.py`, each with a JSON result in
+   `board_only.json`): the chip clock by the three meters; the compiled UART
+   receiver and listener against the asynchronous UART far end, swept from
+   -7 % to +7 % around 115200 Bd (expected window from the compiler's
+   manifest); the study's 10BASE-T receiver against an asynchronous
+   Manchester source with duty-cycle distortion and alternating / uniform
+   per-edge jitter on a 78.125 ps grid (`eth_rx_sweep`, run on the board by
+   `farend.py`; the study's simulated limits are the reference: this is the
+   sweep the H1 decoder will have to beat); the study's USB device against an
+   asynchronous host at 0 and +-1.5 % (`usb_async`); the study's CAN nodes
+   with the external node on its own clock (`can_async`).
 7. **Results** in `results/regress_<date>_<time>/`: `summary.json` and
    `summary.md` (build, timing, utilisation, clock, per-test results on both
    backends, transcript comparison, sweep), `coverage.md` / `coverage.json`
@@ -111,14 +118,57 @@ without a board (or without Verilator) the tests skip.
 2. List what each test exercises in `toolchain/tests/hw_coverage.py`
    (`SCENARIOS`), adding feature ids to `FEATURES` if the protocol uses a
    mode nothing else does.
-3. What the harness offers: up to 8 uo->ui wires, 4 open-drain nets over the
-   uio pins, per-uio skew 0-63 cycles, one inversion fault window on the
-   wires, 16384 trace entries between drains (lossless: the chip pauses),
-   the asynchronous UART far end on any ui pin. A protocol whose far end
-   must be asynchronous in some other way (a USB host's SOF timing, an
-   Ethernet partner, a CAN node with its own oscillator) needs either a
-   small far-end model added to the harness like `rh_async_uart.v`, or a
-   real device on the headers (section "Header pin mapping").
+3. What both backends offer (rosetta_tb.cpp header): up to 8 uo->ui wires,
+   4 open-drain nets over the uio pins, per-uio skew 0-63 cycles, one
+   inversion fault window on the wires, a waveform player (8 channels on any
+   input pins, run-length queue streamed without limit, pulls, contention
+   count) and a CAN bus model (up to 4 nodes' TXD nets, transceiver delays,
+   an external node on channel 7). The trace holds 16384 entries between
+   drains and is lossless (the chip pauses). Stimulus is computed on the PC
+   (`toolchain/tests/protolines.py` has USB, 10BASE-T and CAN line models)
+   and played as runs, so both backends get it edge for edge.
+4. Board only: the asynchronous UART far end on any ui pin, and two
+   asynchronous lines with a 78.125 ps edge grid (`rh_line.v`) on any pin
+   or as the CAN bus's external node, fed with event lists from the same
+   line models (`protolines.line_events`). A far end that must also react
+   in real time (a USB host answering within 7.5 bits, a CAN node
+   arbitrating) needs a small HDL model or a real device on the headers.
+
+### Adding the H1 / H3 / H4 scenarios (ruling 59)
+
+The baseline scenarios for the three new protocols are in
+`toolchain/tests/test_usb_rtl.py`, `test_eth_rtl.py` and `test_can_rtl.py`
+(the study's programs, unchanged, in `fixtures/study_*.asm`), and the
+board-only far ends in `board_tests.py` (`eth_rx_sweep`, `usb_async`,
+`can_async`). When an RTL change lands:
+
+* **H1 (Manchester phase-tracking decoder under RECOVER).** Add the new
+  receive program as a fixture and run `test_eth_rtl`'s receive tests on it
+  (the frame generator, impairments and checks are program-independent);
+  then call `board_tests.eth_rx_sweep(points=...)` with its words via
+  `farend ethsweep` (the program is a parameter) and extend the points to the
+  H1 targets (DCD to about 35 ns, alternating jitter to about 18 ns,
+  uniform to about 14 ns). The classifier's board result in
+  `results-latest/` is the baseline to beat. Limitation: the async lines
+  need events at least 20 ns apart, so DCD above 30 ns (low pulses under
+  20 ns) needs a deeper event prefetch in `rh_line.v` (two entries: 15 ns),
+  or two IDELAYs per line used alternately for anything shorter.
+* **H3 (edge-terminated RAW DRIVE).** A CAN transmitter variant that joins
+  a competing SOF: in lockstep, sweep the external node's SOF (waveform
+  channel 7) across a bit time against an idle bus and check the join
+  within about 5 cycles plus the loop delay at 1 Mbit/s; on the board, the
+  same with `can_async` (the external node on its own clock).
+* **H4 (RECOVER options).** CAN receivers resynchronising on recessive-to-
+  dominant edges only, sampling at 75-87.5 %. The bus model applies one
+  delay to both edge directions; a real transceiver is slower on the
+  dominant-to-recessive edge (about 50 ns, REPORT.md 6.5), so add a
+  per-direction delay to the `Y` command in both harnesses
+  (rosetta_tb.cpp and the CAN block in rosetta_harness.v, plus
+  tb_lockstep.v), then check the sample point on the trace.
+
+Each new program needs only fixtures and tests; each harness feature must be
+added to both harnesses with the same meaning, checked in Icarus with
+`sim/run_lockstep.sh` against the Verilator harness before a build.
 
 ## Files
 
@@ -132,6 +182,9 @@ without a board (or without Verilator) the tests skip.
 | `hdl/rh_hostspi.v` | Lockstep host-SPI engine: the C++ harness's frames, edge for edge |
 | `hdl/rh_trace.v` | Change trace: one entry per pin change, 48-bit chip-cycle stamp, 16384 entries |
 | `hdl/rh_async_uart.v` | Asynchronous UART far end on the 125 MHz oscillator (rate by phase accumulator) |
+| `hdl/rh_wave.v` | Lockstep waveform player (the C++ harness's V/P queue) |
+| `hdl/rh_line.v` | Two asynchronous lines with a 78.125 ps edge grid (MMCM, toggle flops, IDELAYE2) |
+| `python/farend.py` | Board-side far-end campaigns (the 10BASE-T receive-margin sweep) |
 | `python/lockstep.py` | Lockstep driver: the C++ harness's commands on the board |
 | `python/board_server.py` | Line-protocol server on the board: `rtlsim.Chip` talks to it over ssh |
 | `regress.py` | The regression gate (one command) |
@@ -345,11 +398,37 @@ from the next falling edge of the first wire's source. Pins not in a net
 read their DRIVE value (`uio_iso`), as unconnected pins read 1 in the C++
 harness.
 
-`python/board_server.py` serves the C++ harness's commands (`R W X L N S F C
-D Q`) plus `B` (reload the PL, reset as the C++ harness does: 10 edges in
-reset, 10 out, cycle 20), `K` (clock meters), `U ui` and `A ui baud parity
-stop2 gap hexbytes` (the asynchronous UART far end, sent while the chip
-clock free-runs: `G 1`, back to lockstep with `G 0`) and `P` (trace status).
+The waveform player (`rh_wave.v`) and the CAN bus model are the C++
+harness's `M U V P K T Y` commands, also edge for edge: the player shows one
+queued cycle per chip edge (prefetching runs from a 16384-entry block-RAM
+queue, and pausing a lockstep run for a cycle when a run is not fetched yet),
+and the server streams longer waves without ever letting the queue run dry
+during a clocked command. The CAN delay lines are 256-deep shift registers
+clocked by chip edges from configuration, as the C++ harness's ring buffers
+record every cycle from reset.
+
+`python/board_server.py` serves the C++ harness's upper-case commands and
+board-only lower-case words (its docstring lists them): `begin` (reload the
+PL, reset as the C++ harness does: 10 edges in reset, 10 out, cycle 20),
+`clock`, `uart`/`uartroute` (async UART), `freerun 0|1`, `tracestat`,
+`lineroute`/`lineplay`/`linestat` (async lines), and `farend NAME JSON` for
+campaigns that run on the board (`farend.py`: `ethsweep`).
+
+### Asynchronous lines (`rh_line.v`, board only)
+
+An MMCM on the board's 125 MHz oscillator makes a 200 MHz clock independent
+of the chip's. Each event (computed by the processor in continuous time)
+sets one or both lines' level and drive at `dt` 5 ns cycles after the
+previous event, plus 2.5 ns if `half` (a negedge toggle flop; each line is
+the XOR of a posedge and a negedge toggle flop, glitch-free), plus `tap` x
+78.125 ps through the line's IDELAYE2 (DATAIN path, VAR_LOAD, loaded two
+cycles before the edge while the line is still; IDELAYCTRL reference 200
+MHz): a 78.125 ps grid. Events must be at least 20 ns apart. Accuracy
+limits: the MMCM output jitter (about 0.1 ns) and an unmeasured rise/fall
+asymmetry of the fabric path from the IDELAY to the chip input. A line
+routed to a pin behaves as a waveform channel with priority over the
+channels (drive / value, pulls, uio contention counted in LINE_STATUS);
+pin code 16 makes line 0 the CAN bus's external node.
 `sim/run_lockstep.sh cmds out` checks the HDL the same way in Icarus: it
 plays a command file (for example `sim/lockstep_smoke.cmds`, or the
 commands of any transcript) through the harness registers with the real
@@ -358,7 +437,7 @@ the same file (`Vtt_um_jesselevine727_rosetta < cmds`). Before the first
 build the UART (parity none, with the fault), SPI mode 3 and I2C fastest
 scenarios (nets and skew) were checked this way: byte-identical replies.
 
-### Lockstep registers (eight more dual-channel AXI GPIOs, 60 MHz domain)
+### Lockstep registers (thirteen more dual-channel AXI GPIOs, 60 MHz domain)
 
 | Base | Ch | Name | Bits |
 |---|---|---|---|
@@ -375,7 +454,18 @@ scenarios (nets and skew) were checked this way: byte-identical replies.
 | 0x412E_0000 | 1/2 R | CYC_LO / CYC_HI | lockstep cycle counter (48 bits) |
 | 0x412F_0000 | 1 W | ASYNC_INC | async UART phase increment: rate = 125 MHz x inc / 2^32 |
 | 0x412F_0000 | 2 W | ASYNC_CMD | [7:0] byte, [13:8] buffer address, [14] write toggle, [15] go toggle, [21:16] bytes - 1, [23:22] parity (0 none, 1 even, 2 odd), [24] two stop bits, [27:25] target ui index, [28] route on, [31:29] idle bits between frames |
-| 0x4200_0000, 0x4201_0000, 0x4202_0000 | | TRACE w0, w1, w2 | 16384 entries each: w0 = cycle[31:0]; w1 = {flags[7:0] (bit 0 fault active, bit 1 async line), ui, cycle[47:32]}; w2 = {uio_in, uio_oe, uio_out, uo} |
+| 0x4130_0000 | 1 W | WAVE_WP | [15:0] waveform runs written (mod 65536) |
+| 0x4130_0000 | 2 R | WAVE_STATUS | [0] player empty, [31:16] runs fetched (mod 65536) |
+| 0x4131_0000 | 1/2 W | CHMAP_LO / CHMAP_HI | waveform channel k in byte k (0-3) / k-4 (4-7): [4] mapped, [3:0] pin (0-7 ui, 8-15 uio) |
+| 0x4132_0000 | 1 W | PULL | [15:0] pull on per pin, [31:16] pull value |
+| 0x4132_0000 | 2 R | CONTENTION | pin-cycles where a channel and the chip both drove a uio pin |
+| 0x4133_0000 | 1 W | CAN_CFG | [7:0] dtx, [15:8] drx, [19:16] node enables, [31:20] RXD ui pin of nodes 0-3 (3 bits each) |
+| 0x4133_0000 | 2 W | CAN_MASKS | TXD uio pin mask of nodes 0-3 (bytes 0-3) |
+| 0x4134_0000 | 1 W | LINE_CTRL | [0] go toggle, [5:1] line 0 pin (0-15, 16 = CAN external node, 31 = off; reset 31), [10:6] line 1 pin, [31:16] events to play |
+| 0x4134_0000 | 2 R | LINE_STATUS | [0] player empty, [1] line busy, [2] line clock ready (MMCM locked, IDELAYCTRL ready), [15:4] line contention, [31:16] runs fetched |
+| 0x4200_0000, 0x4201_0000, 0x4202_0000 | | TRACE w0, w1, w2 | 16384 entries each: w0 = cycle[31:0]; w1 = {flags[7:0] (bit 0 fault active, bit 1 async UART line, bits 2-3 async lines 0-1), ui, cycle[47:32]}; w2 = {uio_in, uio_oe, uio_out, uo} |
+| 0x4203_0000 | | WAVE queue | 16384 runs: [31:24] drive mask, [23:16] value mask, [15:0] cycles |
+| 0x4204_0000 | | LINE events | 16384 events: [15:0] dt (5 ns cycles), [16] half, [21:17] tap, [23:22] lines set, [25:24] levels, [27:26] drives |
 
 The CTRL GPIO now resets to 0x2 (ena = 1, rst_n = 0, clock stopped), so the
 chip gets no edge between configuration and `load()` or the server.
@@ -452,6 +542,53 @@ hdr_en.
   the template design ignores them. The real design's flops will run on the
   gated chip clock (`clk_out2` domain), which `build.tcl` times together with
   the harness.
+
+## Hardware results: USB, 10BASE-T and CAN added (21 Nov 2026, evening)
+
+Same RTL (repository 8fc3800, `src/` unchanged), harness with the waveform
+player, CAN bus model and async lines; bitstream `63dfda4ddf78...`. Results:
+`results/regress_20261121_221510/` (summary and coverage also in
+`results-latest/`).
+
+**Timing** (all constraints met): chip clock WNS +1.884 / WHS +0.060 ns,
+harness clock +1.694 / +0.017 ns, async-line clock (200 MHz) +0.659 /
++0.122 ns. **Utilisation**: 13312 LUTs (25.0 %), 14288 FFs (13.4 %), 98 BRAM
+tiles (70 %), 2 MMCMs, 6 BUFGs. **Clock**: 60,000,229 Hz against the
+oscillator, 60,000,000 against FCLK0.
+
+**Gate**: PASS in 480 s. 148 toolchain tests on Verilator; 53 chip scenarios
+on the board (the 41 before, plus USB x 3, 10BASE-T x 4, CAN x 5), all
+passing; all 62 sessions identical on both backends (1,956,496 pin changes).
+The main Verilator harness also reproduces the study's own harness byte for
+byte on the USB, Ethernet and CAN scenarios (same commands, `Y` given as the
+study's `B`).
+
+**USB turnaround** (host SE0-to-J to the device's first K; limit 80-300
+cycles = 2-7.5 bit times): lockstep 136-137 cycles (IN) and 83-85 (SETUP /
+DATA0 -> ACK) at host clock 0 and +-1.5 %; asynchronous host on the board
+135-138 and 85-86. Study: 132-138 and 82-86.
+
+**10BASE-T receive margin against an asynchronous source** (100 frames per
+point, payload 46, +-100 ppm per frame, 78.125 ps edge grid): the source
+itself has a duty-cycle distortion at the chip input of +1.1 ns (high
+pulses 1.1 ns longer, low pulses 1.1 ns shorter; measured each run by the
+chip's own RAW SAMPLE on 400 ns pulses, and confirmed by the harness trace
+at 62-69 ns pulses), subtracted from every frame. Last value with no
+failure / first value with failures:
+
+| Impairment | Board | Study (simulation) |
+|---|---|---|
+| DCD, high pulses longer | 16.0 / 16.5 ns (2 of 100) | 16.5 / 17.0 ns |
+| DCD, low pulses longer | 16.5 / 17.0 ns | (symmetric) |
+| Alternating jitter per edge | 8.2 / 8.5 ns | 8.2 / 8.5 ns |
+| Uniform jitter per edge | 8.0 / 9.0 ns | 8.0 / 9.0 ns |
+
+Uncompensated, the same sweep fails earlier, by the source's distortion
+(DCD 15.0 / 16.0 ns, alternating 7.5 / 8.0 ns, and -17 / -18 ns on the
+negative side: centred on +1.1 ns).
+
+**CAN with the external node on its own clock** (+-0.5 %): 0x700, 0x0F0,
+0x123 on the bus, each acknowledged, the same records as in lockstep.
 
 ## Hardware results: the regression gate on the real chip (21 Nov 2026)
 

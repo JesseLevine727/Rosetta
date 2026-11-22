@@ -1,0 +1,1520 @@
+
+ /----------------------------------------------------------------------------\
+ |  yosys -- Yosys Open SYnthesis Suite                                       |
+ |  Copyright (C) 2012 - 2026  Claire Xenia Wolf <claire@yosyshq.com>         |
+ |  Distributed under an ISC-like license, type "license" to see terms        |
+ \----------------------------------------------------------------------------/
+ Yosys 0.70+385 (git sha1 098e46a36, Release, Clang /usr/bin/clang++ 21.1.8)
+
+-- Running command `
+read_verilog -sv ./rosetta_mdpll_min2.sv
+chparam -set PI 4 -set F 5 rosetta_mdpll_min2
+synth -flatten -top rosetta_mdpll_min2
+dfflibmap -liberty /home/elfo/tools/tt-local/pdk/ciel/ihp-sg13/versions/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib
+abc -liberty /home/elfo/tools/tt-local/pdk/ciel/ihp-sg13/versions/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib -script +strash;dretime;map,-D,9000;topo;stime,-p
+tee -o /dev/stdout stat -liberty /home/elfo/tools/tt-local/pdk/ciel/ihp-sg13/versions/89d42ee6d2fd9b50b86a1aada6fee6673c3e6008/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/lib/sg13cmos5l_stdcell_typ_1p20V_25C.lib
+' --
+
+1. Executing Verilog-2005 frontend: ./rosetta_mdpll_min2.sv
+Parsing SystemVerilog input from `./rosetta_mdpll_min2.sv' to AST representation.
+Generating RTLIL representation for module `\rosetta_mdpll_min2'.
+Successfully finished Verilog frontend.
+Parameter \PI = 4
+Parameter \F = 5
+
+2. Executing AST frontend in derive mode using pre-parsed AST for module `\rosetta_mdpll_min2'.
+Parameter \PI = 4
+Parameter \F = 5
+Generating RTLIL representation for module `$paramod$ccb6ec0ff87fc28483c4d871e9e212b28df926ff\rosetta_mdpll_min2'.
+
+3. Executing SYNTH pass.
+
+3.1. Executing HIERARCHY pass (managing design hierarchy).
+
+3.1.1. Analyzing design hierarchy..
+Top module:  \rosetta_mdpll_min2
+
+3.1.2. Analyzing design hierarchy..
+Top module:  \rosetta_mdpll_min2
+Removed 0 unused modules.
+
+3.2. Executing PROC pass (convert processes to netlists).
+
+3.2.1. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Cleaned up 0 empty switches.
+
+3.2.2. Executing PROC_RMDEAD pass (remove dead branches from decision trees).
+Marked 2 switch rules as full_case in process $./rosetta_mdpll_min2.sv:122$proc$122 in module rosetta_mdpll_min2.
+Marked 11 switch rules as full_case in process $./rosetta_mdpll_min2.sv:97$proc$104 in module rosetta_mdpll_min2.
+Removed a total of 0 dead cases.
+
+3.2.3. Executing PROC_PRUNE pass (remove redundant assignments in processes).
+Removed 5 redundant assignments.
+Promoted 6 assignments to connections.
+
+3.2.4. Executing PROC_INIT pass (extract init attributes).
+
+3.2.5. Executing PROC_ARST pass (detect async resets in processes).
+Found async reset \rst_n in `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+
+3.2.6. Executing PROC_ROM pass (convert switches to ROMs).
+Converted 0 switches.
+<suppressed ~12 debug messages>
+
+3.2.7. Executing PROC_MUX pass (convert decision trees to multiplexers).
+Creating decoders for process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+     1/5: $0\miss[0:0]
+     2/5: $0\n[3:0]
+     3/5: $0\o[7:0]
+     4/5: $0\ph[10:0]
+     5/5: $0\state[1:0]
+Creating decoders for process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+     1/30: $7\state_n[1:0]
+     2/30: $6\state_n[1:0]
+     3/30: $5\miss_n[0:0]
+     4/30: $8\ph_n[10:0]
+     5/30: $5\state_n[1:0]
+     6/30: $7\ph_n[10:0]
+     7/30: $6\ph_n[10:0]
+     8/30: $5\ph_n[10:0]
+     9/30: $4\state_n[1:0]
+    10/30: $2\st_n[0:0]
+    11/30: $4\miss_n[0:0]
+    12/30: $4\n_n[3:0]
+    13/30: $4\o_n[7:0]
+    14/30: $4\ph_n[10:0]
+    15/30: $3\ph_n[10:0]
+    16/30: $3\miss_n[0:0]
+    17/30: $3\n_n[3:0]
+    18/30: $3\o_n[7:0]
+    19/30: $3\state_n[1:0]
+    20/30: $2\miss_n[0:0]
+    21/30: $2\n_n[3:0]
+    22/30: $2\o_n[7:0]
+    23/30: $2\state_n[1:0]
+    24/30: $2\ph_n[10:0]
+    25/30: $1\miss_n[0:0]
+    26/30: $1\n_n[3:0]
+    27/30: $1\o_n[7:0]
+    28/30: $1\ph_n[10:0]
+    29/30: $1\state_n[1:0]
+    30/30: $1\st_n[0:0]
+
+3.2.8. Executing PROC_DLATCH pass (convert process syncs to latches).
+No latch inferred for signal `\rosetta_mdpll_min2.\state_n' from process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+No latch inferred for signal `\rosetta_mdpll_min2.\ph_n' from process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+No latch inferred for signal `\rosetta_mdpll_min2.\o_n' from process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+No latch inferred for signal `\rosetta_mdpll_min2.\n_n' from process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+No latch inferred for signal `\rosetta_mdpll_min2.\miss_n' from process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+No latch inferred for signal `\rosetta_mdpll_min2.\st_n' from process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+
+3.2.9. Executing PROC_DFF pass (convert process syncs to FFs).
+Creating register for signal `\rosetta_mdpll_min2.\o' using process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+  created $adff cell `$procdff$367' with positive edge clock and positive level reset.
+Creating register for signal `\rosetta_mdpll_min2.\state' using process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+  created $adff cell `$procdff$372' with positive edge clock and positive level reset.
+Creating register for signal `\rosetta_mdpll_min2.\ph' using process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+  created $adff cell `$procdff$377' with positive edge clock and positive level reset.
+Creating register for signal `\rosetta_mdpll_min2.\n' using process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+  created $adff cell `$procdff$382' with positive edge clock and positive level reset.
+Creating register for signal `\rosetta_mdpll_min2.\miss' using process `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+  created $adff cell `$procdff$387' with positive edge clock and positive level reset.
+
+3.2.10. Executing PROC_MEMWR pass (convert process memory writes to cells).
+
+3.2.11. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Found and cleaned up 1 empty switch in `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+Removing empty process `rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:122$proc$122'.
+Found and cleaned up 11 empty switches in `\rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+Removing empty process `rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:97$proc$104'.
+Cleaned up 12 empty switches.
+
+3.2.12. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~21 debug messages>
+
+3.3. Executing CHECK pass (checking for obvious problems).
+Checking module rosetta_mdpll_min2...
+Found and reported 0 problems.
+
+3.4. Executing FLATTEN pass (flatten design).
+
+3.5. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.6. Executing CHECK pass (checking for obvious problems).
+Checking module rosetta_mdpll_min2...
+Found and reported 0 problems.
+
+3.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 6 unused cells and 161 unused wires.
+<suppressed ~7 debug messages>
+
+3.8. Executing OPT pass (performing simple optimizations).
+
+3.8.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.8.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 136 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 132 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~12 debug messages>
+Removed a total of 4 cells.
+
+3.8.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+    dead port 2/2 on $mux $procmux$331.
+    dead port 2/2 on $mux $procmux$325.
+    dead port 2/2 on $mux $procmux$319.
+    dead port 2/2 on $mux $procmux$313.
+    dead port 2/2 on $mux $procmux$311.
+    dead port 2/2 on $mux $procmux$304.
+    dead port 2/2 on $mux $procmux$302.
+    dead port 2/2 on $mux $procmux$295.
+    dead port 2/2 on $mux $procmux$293.
+    dead port 2/2 on $mux $procmux$286.
+    dead port 2/2 on $mux $procmux$284.
+    dead port 2/2 on $mux $procmux$277.
+    dead port 1/2 on $mux $procmux$275.
+    dead port 1/2 on $mux $procmux$268.
+    dead port 1/2 on $mux $procmux$262.
+    dead port 1/2 on $mux $procmux$256.
+    dead port 1/2 on $mux $procmux$250.
+    dead port 1/2 on $mux $procmux$244.
+    dead port 1/2 on $mux $procmux$238.
+    dead port 1/2 on $mux $procmux$232.
+    dead port 2/2 on $mux $procmux$229.
+    dead port 1/2 on $mux $procmux$223.
+    dead port 2/2 on $mux $procmux$220.
+    dead port 1/2 on $mux $procmux$218.
+    dead port 1/2 on $mux $procmux$211.
+    dead port 2/2 on $mux $procmux$208.
+    dead port 1/2 on $mux $procmux$206.
+    dead port 1/2 on $mux $procmux$203.
+    dead port 1/2 on $mux $procmux$196.
+    dead port 2/2 on $mux $procmux$193.
+    dead port 1/2 on $mux $procmux$187.
+    dead port 1/2 on $mux $procmux$184.
+    dead port 1/2 on $mux $procmux$178.
+    dead port 1/2 on $mux $procmux$175.
+    dead port 1/2 on $mux $procmux$169.
+    dead port 1/2 on $mux $procmux$166.
+    dead port 1/2 on $mux $procmux$160.
+    dead port 1/2 on $mux $procmux$157.
+    dead port 2/2 on $mux $procmux$154.
+    dead port 2/2 on $mux $procmux$343.
+    dead port 2/2 on $mux $procmux$337.
+Removed 41 multiplexer ports.
+<suppressed ~93 debug messages>
+
+3.8.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.8.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 91 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.8.6. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.8.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 44 unused wires.
+<suppressed ~1 debug messages>
+
+3.8.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.8.9. Rerunning OPT passes. (Maybe there is more to do..)
+
+3.8.10. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~52 debug messages>
+
+3.8.11. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.8.12. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 91 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.8.13. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.8.14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.8.15. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.8.16. Finished fast OPT passes. (There is nothing left to do.)
+
+3.9. Executing FSM pass (extract and optimize FSM).
+
+3.9.1. Executing FSM_DETECT pass (finding FSMs in design).
+Found FSM state register rosetta_mdpll_min2.state.
+
+3.9.2. Executing FSM_EXTRACT pass (extracting FSM from design).
+Extracting FSM `\state' from module `\rosetta_mdpll_min2'.
+  found $adff cell for state register: $procdff$372
+  root of input selection tree: $0\state[1:0]
+  found reset state: 2'00 (from async reset)
+  found ctrl input: $./rosetta_mdpll_min2.sv:125$logic_or$127_Y
+  found ctrl input: $./rosetta_mdpll_min2.sv:99$eq$105_Y
+  found ctrl input: $./rosetta_mdpll_min2.sv:105$logic_and$106_Y
+  found ctrl input: \late
+  found ctrl input: $./rosetta_mdpll_min2.sv:118$logic_or$121_Y
+  found ctrl input: $./rosetta_mdpll_min2.sv:114$logic_and$120_Y
+  found state code: 2'10
+  found ctrl input: \dedge_i
+  found ctrl input: \long_iv
+  found state code: 2'01
+  found ctrl output: $./rosetta_mdpll_min2.sv:99$eq$105_Y
+  found ctrl output: \lock_o
+  found ctrl output: \acq_o
+  ctrl inputs: { $./rosetta_mdpll_min2.sv:125$logic_or$127_Y $./rosetta_mdpll_min2.sv:118$logic_or$121_Y $./rosetta_mdpll_min2.sv:114$logic_and$120_Y $./rosetta_mdpll_min2.sv:105$logic_and$106_Y \late \long_iv \dedge_i }
+  ctrl outputs: { $./rosetta_mdpll_min2.sv:99$eq$105_Y $0\state[1:0] \acq_o \lock_o }
+  transition:       2'00 7'0-----0 ->       2'00 5'10000
+  transition:       2'00 7'0----01 ->       2'00 5'10000
+  transition:       2'00 7'0----11 ->       2'01 5'10100
+  transition:       2'00 7'1------ ->       2'00 5'10000
+  transition:       2'10 7'0--00-- ->       2'10 5'01001
+  transition:       2'10 7'00-01-- ->       2'10 5'01001
+  transition:       2'10 7'01-01-- ->       2'00 5'00001
+  transition:       2'10 7'0-01--- ->       2'10 5'01001
+  transition:       2'10 7'0-11--- ->       2'10 5'01001
+  transition:       2'10 7'1------ ->       2'00 5'00001
+  transition:       2'01 7'0--00-- ->       2'01 5'00110
+  transition:       2'01 7'00-01-- ->       2'01 5'00110
+  transition:       2'01 7'01-01-- ->       2'00 5'00010
+  transition:       2'01 7'0-01--- ->       2'01 5'00110
+  transition:       2'01 7'0-11--- ->       2'10 5'01010
+  transition:       2'01 7'1------ ->       2'00 5'00010
+
+3.9.3. Executing FSM_OPT pass (simple optimizations of FSMs).
+Optimizing FSM `$fsm$\state$388' from module `\rosetta_mdpll_min2'.
+  Merging pattern 7'0-01--- and 7'0-11--- from group (1 1 5'01001).
+  Merging pattern 7'0-11--- and 7'0-01--- from group (1 1 5'01001).
+
+3.9.4. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 12 unused cells and 12 unused wires.
+<suppressed ~14 debug messages>
+
+3.9.5. Executing FSM_OPT pass (simple optimizations of FSMs).
+Optimizing FSM `$fsm$\state$388' from module `\rosetta_mdpll_min2'.
+  Removing unused output signal $0\state[1:0] [0].
+  Removing unused output signal $0\state[1:0] [1].
+
+3.9.6. Executing FSM_RECODE pass (re-assigning FSM state encoding).
+Recoding FSM `$fsm$\state$388' from module `\rosetta_mdpll_min2' using `auto' encoding:
+  mapping auto encoding to `one-hot` for this FSM.
+  00 -> --1
+  10 -> -1-
+  01 -> 1--
+
+3.9.7. Executing FSM_INFO pass (dumping all available information on FSM cells).
+
+FSM `$fsm$\state$388' from module `rosetta_mdpll_min2':
+-------------------------------------
+
+  Information on FSM $fsm$\state$388 (\state):
+
+  Number of input signals:    7
+  Number of output signals:   3
+  Number of state bits:       3
+
+  Input signals:
+    0: \dedge_i
+    1: \long_iv
+    2: \late
+    3: $./rosetta_mdpll_min2.sv:105$logic_and$106_Y
+    4: $./rosetta_mdpll_min2.sv:114$logic_and$120_Y
+    5: $./rosetta_mdpll_min2.sv:118$logic_or$121_Y
+    6: $./rosetta_mdpll_min2.sv:125$logic_or$127_Y
+
+  Output signals:
+    0: \lock_o
+    1: \acq_o
+    2: $./rosetta_mdpll_min2.sv:99$eq$105_Y
+
+  State encoding:
+    0:      3'--1  <RESET STATE>
+    1:      3'-1-
+    2:      3'1--
+
+  Transition Table (state_in, ctrl_in, state_out, ctrl_out):
+      0:     0 7'0-----0   ->     0 3'100
+      1:     0 7'0----01   ->     0 3'100
+      2:     0 7'1------   ->     0 3'100
+      3:     0 7'0----11   ->     2 3'100
+      4:     1 7'01-01--   ->     0 3'001
+      5:     1 7'1------   ->     0 3'001
+      6:     1 7'0--00--   ->     1 3'001
+      7:     1 7'00-01--   ->     1 3'001
+      8:     1 7'0--1---   ->     1 3'001
+      9:     2 7'01-01--   ->     0 3'010
+     10:     2 7'1------   ->     0 3'010
+     11:     2 7'0-11---   ->     1 3'010
+     12:     2 7'0--00--   ->     2 3'010
+     13:     2 7'00-01--   ->     2 3'010
+     14:     2 7'0-01---   ->     2 3'010
+
+-------------------------------------
+
+3.9.8. Executing FSM_MAP pass (mapping FSMs to basic logic).
+Mapping FSM `$fsm$\state$388' from module `\rosetta_mdpll_min2'.
+
+3.10. Executing OPT pass (performing simple optimizations).
+
+3.10.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~4 debug messages>
+
+3.10.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 106 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 104 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~6 debug messages>
+Removed a total of 2 cells.
+
+3.10.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~43 debug messages>
+
+3.10.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.10.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 104 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.10.6. Executing OPT_DFF pass (perform DFF optimizations).
+Adding EN signal on $procdff$387 ($adff) from module rosetta_mdpll_min2 (D = $0\miss[0:0], Q = \miss).
+Adding EN signal on $procdff$382 ($adff) from module rosetta_mdpll_min2 (D = $0\n[3:0], Q = \n).
+Adding EN signal on $procdff$367 ($adff) from module rosetta_mdpll_min2 (D = $0\o[7:0], Q = \o).
+Adding EN signal on $procdff$377 ($adff) from module rosetta_mdpll_min2 (D = $0\ph[10:0], Q = \ph).
+
+3.10.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 7 unused wires.
+<suppressed ~1 debug messages>
+
+3.10.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~4 debug messages>
+
+3.10.9. Rerunning OPT passes. (Maybe there is more to do..)
+
+3.10.10. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~43 debug messages>
+
+3.10.11. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.10.12. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 119 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 114 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~15 debug messages>
+Removed a total of 5 cells.
+
+3.10.13. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.10.14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 5 unused wires.
+<suppressed ~1 debug messages>
+
+3.10.15. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.10.16. Rerunning OPT passes. (Maybe there is more to do..)
+
+3.10.17. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~43 debug messages>
+
+3.10.18. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.10.19. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 114 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.10.20. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.10.21. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.10.22. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.10.23. Finished fast OPT passes. (There is nothing left to do.)
+
+3.11. Executing WREDUCE pass (reducing word size of cells).
+Removed top 2 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$402 ($eq).
+Removed top 1 bits (of 4) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$406 ($eq).
+Removed top 1 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$423 ($eq).
+Removed top 1 bits (of 2) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$427 ($eq).
+Removed top 1 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$432 ($eq).
+Removed top 3 bits (of 4) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$440 ($eq).
+Removed top 2 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$fsm_map.cc:77:implement_pattern_cache$444 ($eq).
+Removed top 1 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$simple.cc:214:make_patterns_logic$463 ($ne).
+Removed top 1 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$simple.cc:214:make_patterns_logic$470 ($ne).
+Removed top 2 bits (of 3) from port B of cell rosetta_mdpll_min2.$auto$simple.cc:214:make_patterns_logic$476 ($ne).
+Removed top 1 bits (of 4) from port B of cell rosetta_mdpll_min2.$auto$simple.cc:214:make_patterns_logic$481 ($ne).
+Removed top 3 bits (of 11) from port A of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add).
+Removed top 4 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add).
+Converting cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add) from signed to unsigned.
+Removed top 2 bits (of 11) from port Y of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add).
+Removed top 1 bits (of 8) from port A of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add).
+Removed top 1 bits (of 7) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add).
+Removed top 1 bits (of 9) from port Y of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:69$add$71 ($add).
+Removed top 2 bits (of 11) from port A of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add).
+Removed top 4 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add).
+Converting cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add) from signed to unsigned.
+Removed top 1 bits (of 11) from port Y of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add).
+Removed top 1 bits (of 9) from port A of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add).
+Removed top 1 bits (of 7) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add).
+Removed top 1 bits (of 10) from port Y of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:70$add$74 ($add).
+Removed top 4 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:76$add$75 ($add).
+Removed top 1 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:77$sub$76 ($sub).
+Removed top 3 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:80$add$77 ($add).
+Removed top 3 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:80$sub$78 ($sub).
+Removed top 3 bits (of 11) from mux cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:82$ternary$81 ($mux).
+Converting cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:84$add$82 ($add) from unsigned to signed.
+Removed top 1 bits (of 12) from port A of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:84$add$82 ($add).
+Removed top 3 bits (of 12) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:84$add$82 ($add).
+Removed top 2 bits (of 12) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:85$le$84 ($le).
+Removed top 1 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:86$ge$86 ($ge).
+Removed top 2 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:87$ge$88 ($ge).
+Removed top 9 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:107$sub$108 ($sub).
+Removed top 9 bits (of 11) from port B of cell rosetta_mdpll_min2.$./rosetta_mdpll_min2.sv:108$add$109 ($add).
+Removed top 3 bits (of 11) from wire rosetta_mdpll_min2.win.
+Removed top 5 bits (of 11) from wire rosetta_mdpll_min2.inc.
+Removed top 2 bits (of 11) from wire rosetta_mdpll_min2.a_lo.
+Removed top 3 bits (of 11) from wire rosetta_mdpll_min2.w_acq.
+Removed top 4 bits (of 11) from wire rosetta_mdpll_min2.w_trk.
+Removed top 2 bits (of 11) from wire rosetta_mdpll_min2.pq.
+
+3.12. Executing PEEPOPT pass (run peephole optimizers).
+
+3.13. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 6 unused wires.
+<suppressed ~1 debug messages>
+
+3.14. Executing ALUMACC pass (create $alu and $macc cells).
+Extracting $alu and $macc cells in module rosetta_mdpll_min2:
+  creating $macc model for $./rosetta_mdpll_min2.sv:114$add$118 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:110$sub$111 ($sub).
+  creating $macc model for $./rosetta_mdpll_min2.sv:110$add$110 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:108$add$109 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:107$sub$108 ($sub).
+  creating $macc model for $./rosetta_mdpll_min2.sv:84$add$82 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:80$sub$78 ($sub).
+  creating $macc model for $./rosetta_mdpll_min2.sv:80$add$77 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:77$sub$76 ($sub).
+  creating $macc model for $./rosetta_mdpll_min2.sv:76$add$75 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:70$add$74 ($add).
+  creating $macc model for $./rosetta_mdpll_min2.sv:69$add$71 ($add).
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:69$add$71.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:70$add$74.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:76$add$75.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:77$sub$76.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:80$add$77.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:80$sub$78.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:84$add$82.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:107$sub$108.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:108$add$109.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:110$add$110.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:110$sub$111.
+  creating $alu model for $macc $./rosetta_mdpll_min2.sv:114$add$118.
+  creating $alu model for $./rosetta_mdpll_min2.sv:87$ge$88 ($ge): new $alu
+  creating $alu model for $./rosetta_mdpll_min2.sv:86$ge$86 ($ge): new $alu
+  creating $alu model for $./rosetta_mdpll_min2.sv:85$le$84 ($le): new $alu
+  creating $alu cell for $./rosetta_mdpll_min2.sv:85$le$84: $auto$alumacc.cc:578:replace_alu$491
+  creating $alu cell for $./rosetta_mdpll_min2.sv:86$ge$86: $auto$alumacc.cc:578:replace_alu$502
+  creating $alu cell for $./rosetta_mdpll_min2.sv:87$ge$88: $auto$alumacc.cc:578:replace_alu$517
+  creating $alu cell for $./rosetta_mdpll_min2.sv:114$add$118: $auto$alumacc.cc:578:replace_alu$532
+  creating $alu cell for $./rosetta_mdpll_min2.sv:110$sub$111: $auto$alumacc.cc:578:replace_alu$535
+  creating $alu cell for $./rosetta_mdpll_min2.sv:110$add$110: $auto$alumacc.cc:578:replace_alu$538
+  creating $alu cell for $./rosetta_mdpll_min2.sv:108$add$109: $auto$alumacc.cc:578:replace_alu$541
+  creating $alu cell for $./rosetta_mdpll_min2.sv:107$sub$108: $auto$alumacc.cc:578:replace_alu$544
+  creating $alu cell for $./rosetta_mdpll_min2.sv:84$add$82: $auto$alumacc.cc:578:replace_alu$547
+  creating $alu cell for $./rosetta_mdpll_min2.sv:80$sub$78: $auto$alumacc.cc:578:replace_alu$550
+  creating $alu cell for $./rosetta_mdpll_min2.sv:80$add$77: $auto$alumacc.cc:578:replace_alu$553
+  creating $alu cell for $./rosetta_mdpll_min2.sv:77$sub$76: $auto$alumacc.cc:578:replace_alu$556
+  creating $alu cell for $./rosetta_mdpll_min2.sv:76$add$75: $auto$alumacc.cc:578:replace_alu$559
+  creating $alu cell for $./rosetta_mdpll_min2.sv:70$add$74: $auto$alumacc.cc:578:replace_alu$562
+  creating $alu cell for $./rosetta_mdpll_min2.sv:69$add$71: $auto$alumacc.cc:578:replace_alu$565
+  created 15 $alu and 0 $macc cells.
+
+3.15. Executing SHARE pass (SAT-based resource sharing).
+
+3.16. Executing OPT pass (performing simple optimizations).
+
+3.16.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.16.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 130 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.16.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~43 debug messages>
+
+3.16.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.16.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 130 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.16.6. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.16.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 3 unused wires.
+<suppressed ~1 debug messages>
+
+3.16.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.16.9. Rerunning OPT passes. (Maybe there is more to do..)
+
+3.16.10. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~43 debug messages>
+
+3.16.11. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.16.12. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 130 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.16.13. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.16.14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.16.15. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.16.16. Finished fast OPT passes. (There is nothing left to do.)
+
+3.17. Executing MEMORY pass.
+
+3.17.1. Executing OPT_MEM pass (optimize memories).
+Performed a total of 0 transformations.
+
+3.17.2. Executing OPT_MEM_PRIORITY pass (removing unnecessary memory write priority relations).
+Performed a total of 0 transformations.
+
+3.17.3. Executing OPT_MEM_FEEDBACK pass (finding memory read-to-write feedback paths).
+
+3.17.4. Executing MEMORY_BMUX2ROM pass (converting muxes to ROMs).
+
+3.17.5. Executing MEMORY_DFF pass (merging $dff cells to $memrd).
+
+3.17.6. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.17.7. Executing MEMORY_SHARE pass (consolidating $memrd/$memwr cells).
+
+3.17.8. Executing OPT_MEM_WIDEN pass (optimize memories where all ports are wide).
+Performed a total of 0 transformations.
+
+3.17.9. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.17.10. Executing MEMORY_COLLECT pass (generating $mem cells).
+
+3.18. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.19. Executing OPT pass (performing simple optimizations).
+
+3.19.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~20 debug messages>
+
+3.19.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 130 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 124 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~18 debug messages>
+Removed a total of 6 cells.
+
+3.19.3. Executing OPT_DFF pass (perform DFF optimizations).
+Adding EN signal on $auto$ff.cc:337:slice$479 ($adffe) from module rosetta_mdpll_min2 (D = $0\ph[10:0] [4:0], Q = \ph [4:0]).
+
+3.19.4. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 1 unused cells and 24 unused wires.
+<suppressed ~2 debug messages>
+
+3.19.5. Rerunning OPT passes. (Removed registers in this run.)
+
+3.19.6. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~3 debug messages>
+
+3.19.7. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 128 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 127 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~3 debug messages>
+Removed a total of 1 cells.
+
+3.19.8. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.19.9. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 1 unused wires.
+<suppressed ~1 debug messages>
+
+3.19.10. Finished fast OPT passes.
+
+3.20. Executing MEMORY_MAP pass (converting memories to logic and flip-flops).
+
+3.21. Executing OPT pass (performing simple optimizations).
+
+3.21.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.21.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 127 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.21.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~29 debug messages>
+
+3.21.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+    Consolidated identical input bits for $mux cell $procmux$341:
+      Old ports: A={ \ph_inc [10:5] 5'x }, B=11'00000000000, Y=$2\ph_n[10:0]
+      New ports: A={ \ph_inc [10:5] 1'x }, B=7'0000000, Y={ $2\ph_n[10:0] [10:5] $2\ph_n[10:0] [0] }
+      New connections: $2\ph_n[10:0] [4:1] = { $2\ph_n[10:0] [0] $2\ph_n[10:0] [0] $2\ph_n[10:0] [0] $2\ph_n[10:0] [0] }
+    Consolidated identical input bits for $mux cell $./rosetta_mdpll_min2.sv:82$ternary$81:
+      Old ports: A={ 1'0 \cfg_period_i [3:0] 3'000 }, B={ \w_acq [7:3] \cfg_period_i [0] 2'00 }, Y=\win
+      New ports: A={ 1'0 \cfg_period_i [3:0] 1'0 }, B={ \w_acq [7:3] \cfg_period_i [0] }, Y=\win [7:2]
+      New connections: \win [1:0] = 2'00
+    Consolidated identical input bits for $mux cell $procmux$181:
+      Old ports: A={ \ph_inc [10:5] 5'x }, B={ \base [10:5] 5'x }, Y=$8\ph_n[10:0]
+      New ports: A=\ph_inc [10:5], B=\base [10:5], Y=$8\ph_n[10:0] [10:5]
+      New connections: $8\ph_n[10:0] [4:0] = 5'x
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 3 changes.
+
+3.21.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 127 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.21.6. Executing OPT_SHARE pass.
+    Found cells that share an operand and can be merged by moving the $mux $./rosetta_mdpll_min2.sv:110$ternary$113 in front of them:
+        $auto$alumacc.cc:578:replace_alu$538
+        $auto$alumacc.cc:578:replace_alu$535
+
+    Found cells that share an operand and can be merged by moving the $mux $./rosetta_mdpll_min2.sv:80$ternary$79 in front of them:
+        $auto$alumacc.cc:578:replace_alu$553
+        $auto$alumacc.cc:578:replace_alu$550
+
+3.21.7. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.21.8. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 12 unused wires.
+<suppressed ~1 debug messages>
+
+3.21.9. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~5 debug messages>
+
+3.21.10. Rerunning OPT passes. (Maybe there is more to do..)
+
+3.21.11. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~30 debug messages>
+
+3.21.12. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+    Consolidated identical input bits for $mux cell $auto$opt_share.cc:245:merge_operators$605:
+      Old ports: A=8'11111111, B=8'00000001, Y=$auto$rtlil.cc:3333:Mux$606
+      New ports: A=1'1, B=1'0, Y=$auto$rtlil.cc:3333:Mux$606 [1]
+      New connections: { $auto$rtlil.cc:3333:Mux$606 [7:2] $auto$rtlil.cc:3333:Mux$606 [0] } = { $auto$rtlil.cc:3333:Mux$606 [1] $auto$rtlil.cc:3333:Mux$606 [1] $auto$rtlil.cc:3333:Mux$606 [1] $auto$rtlil.cc:3333:Mux$606 [1] $auto$rtlil.cc:3333:Mux$606 [1] $auto$rtlil.cc:3333:Mux$606 [1] 1'1 }
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 1 changes.
+
+3.21.13. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 128 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.21.14. Executing OPT_SHARE pass.
+
+3.21.15. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.21.16. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 0 unused cells and 5 unused wires.
+<suppressed ~1 debug messages>
+
+3.21.17. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~1 debug messages>
+
+3.21.18. Rerunning OPT passes. (Maybe there is more to do..)
+
+3.21.19. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \rosetta_mdpll_min2..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~28 debug messages>
+
+3.21.20. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \rosetta_mdpll_min2.
+Performed a total of 0 changes.
+
+3.21.21. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 128 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Removed a total of 0 cells.
+
+3.21.22. Executing OPT_SHARE pass.
+
+3.21.23. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.21.24. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+
+3.21.25. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+
+3.21.26. Finished fast OPT passes. (There is nothing left to do.)
+
+3.22. Executing TECHMAP pass (map to technology primitives).
+
+3.22.1. Executing Verilog-2005 frontend: /home/elfo/tools/oss-cad-suite-dl/oss-cad-suite/lib/../share/yosys/techmap.v
+Parsing Verilog input from `/home/elfo/tools/oss-cad-suite-dl/oss-cad-suite/lib/../share/yosys/techmap.v' to AST representation.
+Generating RTLIL representation for module `\_90_simplemap_bool_ops'.
+Generating RTLIL representation for module `\_90_simplemap_reduce_ops'.
+Generating RTLIL representation for module `\_90_simplemap_logic_ops'.
+Generating RTLIL representation for module `\_90_simplemap_compare_ops'.
+Generating RTLIL representation for module `\_90_simplemap_various'.
+Generating RTLIL representation for module `\_90_simplemap_registers'.
+Generating RTLIL representation for module `\_90_shift_ops_shr_shl_sshl_sshr'.
+Generating RTLIL representation for module `\_90_shift_shiftx'.
+Generating RTLIL representation for module `\_90_fa'.
+Generating RTLIL representation for module `\_90_lcu_brent_kung'.
+Generating RTLIL representation for module `\_90_alu'.
+Generating RTLIL representation for module `\_90_macc'.
+Generating RTLIL representation for module `\_90_alumacc'.
+Generating RTLIL representation for module `$__div_mod_u'.
+Generating RTLIL representation for module `$__div_mod_trunc'.
+Generating RTLIL representation for module `\_90_div'.
+Generating RTLIL representation for module `\_90_mod'.
+Generating RTLIL representation for module `$__div_mod_floor'.
+Generating RTLIL representation for module `\_90_divfloor'.
+Generating RTLIL representation for module `\_90_modfloor'.
+Generating RTLIL representation for module `\_90_pow'.
+Generating RTLIL representation for module `\_90_demux'.
+Generating RTLIL representation for module `\_90_lut'.
+Generating RTLIL representation for module `$connect'.
+Generating RTLIL representation for module `$input_port'.
+Successfully finished Verilog frontend.
+
+3.22.2. Continuing TECHMAP pass.
+Using extmapper simplemap for cells of type $adffe.
+Using extmapper simplemap for cells of type $adff.
+Using extmapper simplemap for cells of type $logic_not.
+Using extmapper simplemap for cells of type $and.
+Using extmapper simplemap for cells of type $eq.
+Using extmapper simplemap for cells of type $reduce_or.
+Using template $paramod$26c9f6b411132695dc057127c4a235ba949e68dd\_90_alu for cells of type $alu.
+Using template $paramod$acb50aac1033d58dd99234b0e18364ce3b729ad2\_90_alu for cells of type $alu.
+Using template $paramod$c6cac7b66cb5130862ba6df599147e943f2b57cd\_90_alu for cells of type $alu.
+Using template $paramod$af3f4c812abaf2dfafdf0ed5cfc0047db1491143\_90_alu for cells of type $alu.
+Using template $paramod$adc6382435ba7fe50315523b10aedb8e224c8208\_90_alu for cells of type $alu.
+Using extmapper simplemap for cells of type $reduce_bool.
+Using extmapper simplemap for cells of type $reduce_and.
+Using extmapper simplemap for cells of type $xor.
+Using extmapper simplemap for cells of type $ne.
+Using extmapper simplemap for cells of type $not.
+Using template $paramod$0ae6dcbc606d0267ec97d3ccf20343286af3366c\_90_alu for cells of type $alu.
+Using template $paramod$0eaac414b46f1414f51107d403a3871daf0cee6e\_90_alu for cells of type $alu.
+Using extmapper simplemap for cells of type $or.
+Using template $paramod$297518c194a8ad6f44154a9c5ecf19486562def9\_90_alu for cells of type $alu.
+Running "alumacc" on wrapper $extern:wrap:$neg:Y_WIDTH=11:A_WIDTH=11:A_SIGNED=1:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$neg:Y_WIDTH=11:A_WIDTH=11:A_SIGNED=1:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$neg:Y_WIDTH=11:A_WIDTH=11:A_SIGNED=1:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $paramod$32a7b7b86c07519b7537abc18e96f0331f97914d\_90_alu for cells of type $alu.
+Using template $paramod$a1bc51c02ce12ac21eb18988e83292af48ed7d72\_90_alu for cells of type $alu.
+Using template $paramod$f83bf8504cb90e91f4a20e2b38f091c5cef49651\_90_alu for cells of type $alu.
+Using template $paramod$7f95631acb8676456e705d33c0a7bfc93870ee4b\_90_alu for cells of type $alu.
+Using template $paramod$90579471a6bf6bd40b5ef9b7e45de3774567ccf7\_90_alu for cells of type $alu.
+Using extmapper simplemap for cells of type $mux.
+Using extmapper simplemap for cells of type $logic_and.
+Using extmapper simplemap for cells of type $logic_or.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000000110 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000000110 for cells of type $lcu.
+Using extmapper simplemap for cells of type $pos.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000001011 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000001011 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000001010 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000001010 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000001001 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000001001 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000000101 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000000101 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000000111 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000000111 for cells of type $lcu.
+Using template $paramod$b88c814db3182f0c444e9827cc183ec51bbd865d\_90_alu for cells of type $alu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000000100 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000000100 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000001000 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000001000 for cells of type $lcu.
+No more expansions possible.
+<suppressed ~1807 debug messages>
+
+3.23. Executing OPT pass (performing simple optimizations).
+
+3.23.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~793 debug messages>
+
+3.23.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 947 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 860 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 854 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 852 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~285 debug messages>
+Removed a total of 95 cells.
+
+3.23.3. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.23.4. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 82 unused cells and 757 unused wires.
+<suppressed ~83 debug messages>
+
+3.23.5. Finished fast OPT passes.
+
+3.24. Executing ABC pass (technology mapping using ABC).
+
+3.24.1. Summary of detected clock domains:
+  10 cells in clk=\clk, en=$auto$simple.cc:230:make_patterns_logic$455, arst=!\rst_n, srst={ }
+  442 cells in clk=\clk, en={ }, arst=!\rst_n, srst={ }
+  21 cells in clk=\clk, en=$auto$simple.cc:230:make_patterns_logic$466, arst=!\rst_n, srst={ }
+  93 cells in clk=\clk, en=$auto$simple.cc:230:make_patterns_logic$477, arst=!\rst_n, srst={ }
+  111 cells in clk=\clk, en=$auto$simple.cc:230:make_patterns_logic$599, arst=!\rst_n, srst={ }
+  93 cells in clk=\clk, en=$auto$simple.cc:213:make_patterns_logic$480, arst=!\rst_n, srst={ }
+
+3.24.2. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+Found matching posedge clock domain: \clk, enabled by $auto$simple.cc:230:make_patterns_logic$455, asynchronously reset by !\rst_n
+
+3.24.3. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+Found matching posedge clock domain: \clk, asynchronously reset by !\rst_n
+Replacing 10 occurrences of constant undef bits with constant zero bits
+
+3.24.4. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+Found matching posedge clock domain: \clk, enabled by $auto$simple.cc:230:make_patterns_logic$466, asynchronously reset by !\rst_n
+
+3.24.5. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+Found matching posedge clock domain: \clk, enabled by $auto$simple.cc:230:make_patterns_logic$477, asynchronously reset by !\rst_n
+
+3.24.6. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+Found matching posedge clock domain: \clk, enabled by $auto$simple.cc:230:make_patterns_logic$599, asynchronously reset by !\rst_n
+Replacing 1 occurrences of constant undef bits with constant zero bits
+
+3.24.7. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+Found matching posedge clock domain: \clk, enabled by $auto$simple.cc:213:make_patterns_logic$480, asynchronously reset by !\rst_n
+
+3.24.7.1. Executed ABC.
+Extracted 9 gates and 19 wires to a netlist network with 9 inputs and 5 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library <abc-temp-dir>/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 07> echo YOSYS_ABC_END
+
+3.24.7.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:        2
+ABC RESULTS:            ANDNOT cells:        1
+ABC RESULTS:                OR cells:        6
+ABC RESULTS:        internal signals:        5
+ABC RESULTS:           input signals:        9
+ABC RESULTS:          output signals:        5
+Removing temp directory.
+
+3.24.7.1. Executed ABC.
+Extracted 439 gates and 537 wires to a netlist network with 96 inputs and 48 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library <abc-temp-dir>/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 07> echo YOSYS_ABC_END
+
+3.24.7.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:       81
+ABC RESULTS:            ANDNOT cells:       34
+ABC RESULTS:               MUX cells:       11
+ABC RESULTS:              NAND cells:      119
+ABC RESULTS:               NOR cells:       13
+ABC RESULTS:               NOT cells:        6
+ABC RESULTS:                OR cells:       44
+ABC RESULTS:             ORNOT cells:       24
+ABC RESULTS:              XNOR cells:       17
+ABC RESULTS:               XOR cells:       10
+ABC RESULTS:        internal signals:      393
+ABC RESULTS:           input signals:       96
+ABC RESULTS:          output signals:       48
+Removing temp directory.
+
+3.24.7.1. Executed ABC.
+Extracted 17 gates and 30 wires to a netlist network with 12 inputs and 12 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library <abc-temp-dir>/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 07> echo YOSYS_ABC_END
+
+3.24.7.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:        3
+ABC RESULTS:            ANDNOT cells:        4
+ABC RESULTS:              NAND cells:        1
+ABC RESULTS:               NOT cells:        1
+ABC RESULTS:                OR cells:        3
+ABC RESULTS:             ORNOT cells:        1
+ABC RESULTS:              XNOR cells:        1
+ABC RESULTS:               XOR cells:        2
+ABC RESULTS:        internal signals:        6
+ABC RESULTS:           input signals:       12
+ABC RESULTS:          output signals:       12
+Removing temp directory.
+
+3.24.7.1. Executed ABC.
+Extracted 85 gates and 114 wires to a netlist network with 28 inputs and 44 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library <abc-temp-dir>/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 07> echo YOSYS_ABC_END
+
+3.24.7.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:       10
+ABC RESULTS:            ANDNOT cells:       15
+ABC RESULTS:               MUX cells:        4
+ABC RESULTS:              NAND cells:        7
+ABC RESULTS:               NOR cells:        8
+ABC RESULTS:               NOT cells:        6
+ABC RESULTS:                OR cells:        2
+ABC RESULTS:             ORNOT cells:        1
+ABC RESULTS:              XNOR cells:       13
+ABC RESULTS:               XOR cells:        2
+ABC RESULTS:        internal signals:       42
+ABC RESULTS:           input signals:       28
+ABC RESULTS:          output signals:       44
+Removing temp directory.
+
+3.24.7.1. Executed ABC.
+Extracted 106 gates and 147 wires to a netlist network with 39 inputs and 51 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library <abc-temp-dir>/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 07> echo YOSYS_ABC_END
+
+3.24.7.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:       18
+ABC RESULTS:            ANDNOT cells:       10
+ABC RESULTS:              NAND cells:       14
+ABC RESULTS:               NOR cells:        8
+ABC RESULTS:               NOT cells:       10
+ABC RESULTS:                OR cells:       11
+ABC RESULTS:             ORNOT cells:        2
+ABC RESULTS:              XNOR cells:       15
+ABC RESULTS:               XOR cells:       11
+ABC RESULTS:        internal signals:       57
+ABC RESULTS:           input signals:       39
+ABC RESULTS:          output signals:       51
+Removing temp directory.
+
+3.24.7.1. Executed ABC.
+Extracted 87 gates and 118 wires to a netlist network with 30 inputs and 19 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library <abc-temp-dir>/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 07> echo YOSYS_ABC_END
+
+3.24.7.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:       19
+ABC RESULTS:            ANDNOT cells:        2
+ABC RESULTS:               MUX cells:        1
+ABC RESULTS:              NAND cells:       15
+ABC RESULTS:               NOR cells:        3
+ABC RESULTS:               NOT cells:        2
+ABC RESULTS:                OR cells:        8
+ABC RESULTS:             ORNOT cells:        1
+ABC RESULTS:              XNOR cells:        2
+ABC RESULTS:               XOR cells:        6
+ABC RESULTS:        internal signals:       69
+ABC RESULTS:           input signals:       30
+ABC RESULTS:          output signals:       19
+Removing temp directory.
+Removing global temp directory.
+
+3.25. Executing OPT pass (performing simple optimizations).
+
+3.25.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module rosetta_mdpll_min2.
+<suppressed ~5 debug messages>
+
+3.25.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\rosetta_mdpll_min2'.
+Computing hashes of 637 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 634 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 633 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 632 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+Computing hashes of 631 cells of `\rosetta_mdpll_min2'.
+Finding duplicate cells in `\rosetta_mdpll_min2'.
+<suppressed ~18 debug messages>
+Removed a total of 6 cells.
+
+3.25.3. Executing OPT_DFF pass (perform DFF optimizations).
+
+3.25.4. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \rosetta_mdpll_min2..
+Removed 2 unused cells and 662 unused wires.
+<suppressed ~7 debug messages>
+
+3.25.5. Finished fast OPT passes.
+
+3.26. Executing HIERARCHY pass (managing design hierarchy).
+Attribute `top' found on module `rosetta_mdpll_min2'. Setting top module to rosetta_mdpll_min2.
+
+3.26.1. Analyzing design hierarchy..
+Top module:  \rosetta_mdpll_min2
+
+3.26.2. Analyzing design hierarchy..
+Top module:  \rosetta_mdpll_min2
+Removed 0 unused modules.
+
+3.27. Printing statistics.
+
+=== rosetta_mdpll_min2 ===
+
+        +----------Local Count, excluding submodules.
+        | 
+      529 wires
+      885 wire bits
+       41 public wires
+      190 public wire bits
+       15 ports
+       30 port bits
+      629 cells
+       66   $_ANDNOT_
+      130   $_AND_
+       24   $_DFFE_PN0P_
+        2   $_DFF_PN0_
+        1   $_DFF_PN1_
+       14   $_MUX_
+      156   $_NAND_
+       32   $_NOR_
+       24   $_NOT_
+       29   $_ORNOT_
+       72   $_OR_
+       48   $_XNOR_
+       31   $_XOR_
+
+3.28. Executing CHECK pass (checking for obvious problems).
+Checking module rosetta_mdpll_min2...
+Found and reported 0 problems.
+
+4. Executing DFFLIBMAP pass (mapping DFF/DLATCH cells to sequential cells from liberty file).
+  cell sg13cmos5l_dfrbpq_1 (noninv, pins=4, area=48.99) is a direct match for cell type $_DFF_PN0_.
+  cell sg13cmos5l_dlhq_1 (noninv, pins=3, area=30.84) is a direct match for cell type $_DLATCH_P_.
+  cell sg13cmos5l_dllrq_1 (noninv, pins=4, area=29.03) is a direct match for cell type $_DLATCH_NN0_.
+  cell sg13cmos5l_dlhrq_1 (noninv, pins=4, area=27.22) is a direct match for cell type $_DLATCH_PN0_.
+  final dff/dlatch cell mappings:
+    unmapped dff/dlatch cell: $_DFF_N_
+    unmapped dff/dlatch cell: $_DFF_P_
+    unmapped dff/dlatch cell: $_DFF_NN0_
+    unmapped dff/dlatch cell: $_DFF_NN1_
+    unmapped dff/dlatch cell: $_DFF_NP0_
+    unmapped dff/dlatch cell: $_DFF_NP1_
+    \sg13cmos5l_dfrbpq_1 _DFF_PN0_ (.CLK( C), .D( D), .Q( Q), .RESET_B( R));
+    unmapped dff/dlatch cell: $_DFF_PN1_
+    unmapped dff/dlatch cell: $_DFF_PP0_
+    unmapped dff/dlatch cell: $_DFF_PP1_
+    unmapped dff/dlatch cell: $_DFFE_NN_
+    unmapped dff/dlatch cell: $_DFFE_NP_
+    unmapped dff/dlatch cell: $_DFFE_PN_
+    unmapped dff/dlatch cell: $_DFFE_PP_
+    unmapped dff/dlatch cell: $_DFFSR_NNN_
+    unmapped dff/dlatch cell: $_DFFSR_NNP_
+    unmapped dff/dlatch cell: $_DFFSR_NPN_
+    unmapped dff/dlatch cell: $_DFFSR_NPP_
+    unmapped dff/dlatch cell: $_DFFSR_PNN_
+    unmapped dff/dlatch cell: $_DFFSR_PNP_
+    unmapped dff/dlatch cell: $_DFFSR_PPN_
+    unmapped dff/dlatch cell: $_DFFSR_PPP_
+    unmapped dff/dlatch cell: $_DLATCH_N_
+    \sg13cmos5l_dlhq_1 _DLATCH_P_ (.D( D), .GATE( E), .Q( Q));
+    \sg13cmos5l_dllrq_1 _DLATCH_NN0_ (.D( D), .GATE_N( E), .Q( Q), .RESET_B( R));
+    unmapped dff/dlatch cell: $_DLATCH_NN1_
+    unmapped dff/dlatch cell: $_DLATCH_NP0_
+    unmapped dff/dlatch cell: $_DLATCH_NP1_
+    \sg13cmos5l_dlhrq_1 _DLATCH_PN0_ (.D( D), .GATE( E), .Q( Q), .RESET_B( R));
+    unmapped dff/dlatch cell: $_DLATCH_PN1_
+    unmapped dff/dlatch cell: $_DLATCH_PP0_
+    unmapped dff/dlatch cell: $_DLATCH_PP1_
+    unmapped dff/dlatch cell: $_DLATCHSR_NNN_
+    unmapped dff/dlatch cell: $_DLATCHSR_NNP_
+    unmapped dff/dlatch cell: $_DLATCHSR_NPN_
+    unmapped dff/dlatch cell: $_DLATCHSR_NPP_
+    unmapped dff/dlatch cell: $_DLATCHSR_PNN_
+    unmapped dff/dlatch cell: $_DLATCHSR_PNP_
+    unmapped dff/dlatch cell: $_DLATCHSR_PPN_
+    unmapped dff/dlatch cell: $_DLATCHSR_PPP_
+
+4.1. Executing DFFLEGALIZE pass (convert FFs and LATCHes to types supported by the target).
+<suppressed ~4 debug messages>
+Mapping DFF/DLATCH cells in module `\rosetta_mdpll_min2':
+  mapped 27 $_DFF_PN0_ cells to \sg13cmos5l_dfrbpq_1 cells.
+
+5. Executing ABC pass (technology mapping using ABC).
+
+5.1. Summary of detected clock domains:
+  655 cells in clk={ }, en={ }, arst={ }, srst={ }
+
+5.2. Extracting gate netlist of module `\rosetta_mdpll_min2' to `<abc-temp-dir>/input.blif'..
+ABC: using cached merged SCL: /tmp/yosys-liberty-scl-cache-1000/yosys_merged_c97d072c.scl (1 files)
+No matching clock domain found. Not extracting any FF cells.
+
+5.2.1. Executed ABC.
+Extracted 628 gates and 667 wires to a netlist network with 39 inputs and 29 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: UC Berkeley, ABC 1.01 (compiled Nov 12 2026 07:39:40)
+ABC: abc 01> empty
+ABC: abc 01> source <abc-temp-dir>/abc.script
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_scl /tmp/yosys-liberty-scl-cache-1000/yosys_merged_c97d072c.scl 
+ABC: + strash 
+ABC: + dretime 
+ABC: + map -D 9000 
+ABC: + topo 
+ABC: + stime -p 
+ABC: WireLoad = "none"  Gates =    513 ( 15.2 %)   Cap =  7.1 ff (  0.0 %)   Area =     4651.89 (100.0 %)   Delay =  3991.53 ps  ( 10.1 %)               
+ABC: Path  0 --       7 : 0    5 pi                  A =   0.00  Df =   0.0   -0.0 ps  S =   0.0 ps  Cin =  0.0 ff  Cout =  20.1 ff  Cmax =   0.0 ff  G =    0  
+ABC: Path  1 --     149 : 1    6 sg13cmos5l_inv_1    A =   5.44  Df =  63.3  -11.9 ps  S =  81.1 ps  Cin =  2.9 ff  Cout =  19.0 ff  Cmax = 300.0 ff  G =  656  
+ABC: Path  2 --     156 : 3    1 sg13cmos5l_o21ai_1  A =   9.07  Df = 218.3   -5.3 ps  S =  73.6 ps  Cin =  3.3 ff  Cout =   3.3 ff  Cmax = 300.0 ff  G =   97  
+ABC: Path  3 --     157 : 3    2 sg13cmos5l_o21ai_1  A =   9.07  Df = 292.3  -12.6 ps  S = 119.6 ps  Cin =  3.3 ff  Cout =   8.2 ff  Cmax = 300.0 ff  G =  246  
+ABC: Path  4 --     161 : 3    2 sg13cmos5l_a21oi_1  A =   9.07  Df = 569.1  -41.8 ps  S =  97.6 ps  Cin =  3.0 ff  Cout =   8.2 ff  Cmax = 300.0 ff  G =  270  
+ABC: Path  5 --     162 : 2    1 sg13cmos5l_nor2_1   A =   7.26  Df = 618.7  -27.0 ps  S =  54.2 ps  Cin =  3.0 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   96  
+ABC: Path  6 --     163 : 3    2 sg13cmos5l_a21oi_1  A =   9.07  Df = 713.3  -70.0 ps  S =  96.7 ps  Cin =  3.0 ff  Cout =   8.2 ff  Cmax = 300.0 ff  G =  270  
+ABC: Path  7 --     164 : 2    1 sg13cmos5l_nor2_1   A =   7.26  Df = 762.8  -57.7 ps  S =  52.7 ps  Cin =  3.0 ff  Cout =   3.0 ff  Cmax = 300.0 ff  G =   97  
+ABC: Path  8 --     165 : 2    2 sg13cmos5l_nor2_1   A =   7.26  Df = 846.4  -90.8 ps  S =  86.8 ps  Cin =  3.0 ff  Cout =   8.0 ff  Cmax = 300.0 ff  G =  266  
+ABC: Path  9 --     166 : 1    2 sg13cmos5l_inv_1    A =   5.44  Df = 900.2 -102.9 ps  S =  37.4 ps  Cin =  2.9 ff  Cout =   6.0 ff  Cmax = 300.0 ff  G =  207  
+ABC: Path 10 --     172 : 5    2 sg13cmos5l_a221oi_1 A =  14.52  Df =1066.0 -185.8 ps  S = 169.9 ps  Cin =  3.0 ff  Cout =   8.1 ff  Cmax = 300.0 ff  G =  271  
+ABC: Path 11 --     173 : 2    1 sg13cmos5l_nor2_1   A =   7.26  Df =1127.9 -175.6 ps  S =  59.4 ps  Cin =  3.0 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   96  
+ABC: Path 12 --     174 : 3    2 sg13cmos5l_a21oi_1  A =   9.07  Df =1227.2 -220.4 ps  S = 101.7 ps  Cin =  3.0 ff  Cout =   8.6 ff  Cmax = 300.0 ff  G =  282  
+ABC: Path 13 --     177 : 3    3 sg13cmos5l_o21ai_1  A =   9.07  Df =1339.2 -179.4 ps  S = 148.8 ps  Cin =  3.3 ff  Cout =  11.2 ff  Cmax = 300.0 ff  G =  336  
+ABC: Path 14 --     182 : 3    1 sg13cmos5l_a21oi_1  A =   9.07  Df =1420.5 -168.7 ps  S =  61.1 ps  Cin =  3.0 ff  Cout =   3.0 ff  Cmax = 300.0 ff  G =  101  
+ABC: Path 15 --     190 : 3    1 sg13cmos5l_a21oi_1  A =   9.07  Df =1483.4 -159.1 ps  S =  54.6 ps  Cin =  3.0 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   96  
+ABC: Path 16 --     191 : 1    2 sg13cmos5l_inv_1    A =   5.44  Df =1526.1 -159.4 ps  S =  37.0 ps  Cin =  2.9 ff  Cout =   5.9 ff  Cmax = 300.0 ff  G =  202  
+ABC: Path 17 --     193 : 2    1 sg13cmos5l_nand2_1  A =   7.26  Df =1567.1 -170.5 ps  S =  35.4 ps  Cin =  2.9 ff  Cout =   2.3 ff  Cmax = 300.0 ff  G =   77  
+ABC: Path 18 --     194 : 2    6 sg13cmos5l_nor2b_1  A =   9.07  Df =1702.4  -29.3 ps  S = 167.0 ps  Cin =  2.6 ff  Cout =  18.2 ff  Cmax = 300.0 ff  G =  687  
+ABC: Path 19 --     252 : 1   10 sg13cmos5l_inv_1    A =   5.44  Df =1867.5  -62.3 ps  S = 134.7 ps  Cin =  2.9 ff  Cout =  30.8 ff  Cmax = 300.0 ff  G = 1045  
+ABC: Path 20 --     348 : 3    1 sg13cmos5l_nor3_1   A =   9.07  Df =1970.8 -105.3 ps  S =  92.2 ps  Cin =  3.0 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   96  
+ABC: Path 21 --     349 : 3    1 sg13cmos5l_nand3_1  A =   9.07  Df =2050.2 -143.5 ps  S =  60.4 ps  Cin =  3.0 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   95  
+ABC: Path 22 --     350 : 4    1 sg13cmos5l_nor4_1   A =  10.89  Df =2157.5 -212.7 ps  S = 115.8 ps  Cin =  2.9 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   97  
+ABC: Path 23 --     351 : 4    3 sg13cmos5l_nand4_1  A =  10.89  Df =2308.4 -301.6 ps  S = 139.2 ps  Cin =  3.0 ff  Cout =   8.8 ff  Cmax = 300.0 ff  G =  290  
+ABC: Path 24 --     352 : 2   14 sg13cmos5l_nand2_1  A =   7.26  Df =2517.3 -285.0 ps  S = 247.5 ps  Cin =  2.9 ff  Cout =  43.6 ff  Cmax = 300.0 ff  G = 1454  
+ABC: Path 25 --     353 : 3    1 sg13cmos5l_a21oi_1  A =   9.07  Df =2618.4 -276.9 ps  S =  69.3 ps  Cin =  3.0 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =   96  
+ABC: Path 26 --     359 : 3    9 sg13cmos5l_nand3_1  A =   9.07  Df =2786.7 -133.9 ps  S = 352.4 ps  Cin =  3.0 ff  Cout =  41.8 ff  Cmax = 300.0 ff  G = 1405  
+ABC: Path 27 --     374 : 3    2 sg13cmos5l_a21oi_1  A =   9.07  Df =3083.3 -124.8 ps  S = 107.4 ps  Cin =  3.0 ff  Cout =   5.3 ff  Cmax = 300.0 ff  G =  177  
+ABC: Path 28 --     375 : 2    2 sg13cmos5l_or2_2    A =  10.89  Df =3197.5  -93.3 ps  S =  38.0 ps  Cin =  2.4 ff  Cout =   6.2 ff  Cmax = 600.0 ff  G =  256  
+ABC: Path 29 --     376 : 3    2 sg13cmos5l_o21ai_1  A =   9.07  Df =3249.2  -96.6 ps  S =  99.4 ps  Cin =  3.3 ff  Cout =   5.4 ff  Cmax = 300.0 ff  G =  159  
+ABC: Path 30 --     377 : 2    2 sg13cmos5l_nand2b_1 A =   9.07  Df =3306.0  -67.7 ps  S =  56.4 ps  Cin =  2.6 ff  Cout =   6.4 ff  Cmax = 300.0 ff  G =  235  
+ABC: Path 31 --     378 : 3    2 sg13cmos5l_o21ai_1  A =   9.07  Df =3362.9  -69.8 ps  S =  99.4 ps  Cin =  3.3 ff  Cout =   5.4 ff  Cmax = 300.0 ff  G =  159  
+ABC: Path 32 --     379 : 2    2 sg13cmos5l_nand2b_1 A =   9.07  Df =3419.7  -40.9 ps  S =  56.4 ps  Cin =  2.6 ff  Cout =   6.4 ff  Cmax = 300.0 ff  G =  235  
+ABC: Path 33 --     380 : 3    2 sg13cmos5l_o21ai_1  A =   9.07  Df =3476.7  -43.0 ps  S =  99.4 ps  Cin =  3.3 ff  Cout =   5.4 ff  Cmax = 300.0 ff  G =  159  
+ABC: Path 34 --     381 : 2    2 sg13cmos5l_nand2b_1 A =   9.07  Df =3533.5  -14.1 ps  S =  56.4 ps  Cin =  2.6 ff  Cout =   6.4 ff  Cmax = 300.0 ff  G =  235  
+ABC: Path 35 --     382 : 3    2 sg13cmos5l_o21ai_1  A =   9.07  Df =3590.5  -16.2 ps  S =  99.4 ps  Cin =  3.3 ff  Cout =   5.4 ff  Cmax = 300.0 ff  G =  159  
+ABC: Path 36 --     383 : 2    2 sg13cmos5l_nand2b_1 A =   9.07  Df =3659.9  -12.7 ps  S =  56.4 ps  Cin =  2.6 ff  Cout =   6.4 ff  Cmax = 300.0 ff  G =  235  
+ABC: Path 37 --     384 : 3    2 sg13cmos5l_o21ai_1  A =   9.07  Df =3714.8  -10.6 ps  S =  99.4 ps  Cin =  3.3 ff  Cout =   5.4 ff  Cmax = 300.0 ff  G =  159  
+ABC: Path 38 --     386 : 2    1 sg13cmos5l_nand2b_1 A =   9.07  Df =3806.6  -15.9 ps  S =  40.1 ps  Cin =  2.6 ff  Cout =   2.9 ff  Cmax = 300.0 ff  G =  109  
+ABC: Path 39 --     388 : 4    1 sg13cmos5l_nand4_1  A =  10.89  Df =3887.9  -51.3 ps  S = 190.6 ps  Cin =  3.0 ff  Cout =   3.5 ff  Cmax = 300.0 ff  G =  112  
+ABC: Path 40 --     390 : 3    1 sg13cmos5l_o21ai_1  A =   9.07  Df =3991.5 -101.8 ps  S =  66.8 ps  Cin =  3.3 ff  Cout =   0.0 ff  Cmax = 300.0 ff  G =    0  
+ABC: Start-point = pi6 (\o [0]).  End-point = po2 ($auto$rtlil.cc:3444:MuxGate$2950).
+ABC: + write_blif <abc-temp-dir>/output.blif 
+ABC: 
+ABC: YOSYS_ABC_DONE 
+ABC: abc 05> echo YOSYS_ABC_END
+
+5.2.2. Re-integrating ABC results.
+ABC RESULTS:   sg13cmos5l_a21o_1 cells:        3
+ABC RESULTS:   sg13cmos5l_a21oi_1 cells:       50
+ABC RESULTS:   sg13cmos5l_a221oi_1 cells:        9
+ABC RESULTS:   sg13cmos5l_a22oi_1 cells:        6
+ABC RESULTS:   sg13cmos5l_and2_1 cells:        4
+ABC RESULTS:   sg13cmos5l_and3_1 cells:        2
+ABC RESULTS:   sg13cmos5l_inv_1 cells:       78
+ABC RESULTS:   sg13cmos5l_mux2_2 cells:        1
+ABC RESULTS:   sg13cmos5l_nand2_1 cells:       74
+ABC RESULTS:   sg13cmos5l_nand2b_1 cells:       20
+ABC RESULTS:   sg13cmos5l_nand3_1 cells:       25
+ABC RESULTS:   sg13cmos5l_nand4_1 cells:       20
+ABC RESULTS:   sg13cmos5l_nor2_1 cells:       59
+ABC RESULTS:   sg13cmos5l_nor2b_1 cells:        4
+ABC RESULTS:   sg13cmos5l_nor3_1 cells:       19
+ABC RESULTS:   sg13cmos5l_nor4_1 cells:        5
+ABC RESULTS:   sg13cmos5l_o21ai_1 cells:       62
+ABC RESULTS:   sg13cmos5l_or2_2 cells:        1
+ABC RESULTS:   sg13cmos5l_xnor2_1 cells:       63
+ABC RESULTS:   sg13cmos5l_xor2_1 cells:        8
+ABC RESULTS:        internal signals:      599
+ABC RESULTS:           input signals:       39
+ABC RESULTS:          output signals:       29
+Removing temp directory.
+Removing global temp directory.
+
+6. Printing statistics.
+
+=== rosetta_mdpll_min2 ===
+
+        +----------Local Count, excluding submodules.
+        |        +-Local Area, excluding submodules.
+        |        | 
+     1107        - wires
+     1463        - wire bits
+       41        - public wires
+      190        - public wire bits
+       15        - ports
+       30        - port bits
+      540 5.97E+03 cells
+        3   38.102   sg13cmos5l_a21o_1
+       50    453.6   sg13cmos5l_a21oi_1
+        9  130.637   sg13cmos5l_a221oi_1
+        6   65.092   sg13cmos5l_a22oi_1
+        4   36.288   sg13cmos5l_and2_1
+        2   25.402   sg13cmos5l_and3_1
+       27 1.32E+03   sg13cmos5l_dfrbpq_1
+       78   424.57   sg13cmos5l_inv_1
+        1   19.958   sg13cmos5l_mux2_2
+       74  537.062   sg13cmos5l_nand2_1
+       20   181.44   sg13cmos5l_nand2b_1
+       25    226.8   sg13cmos5l_nand3_1
+       20  217.728   sg13cmos5l_nand4_1
+       59  428.198   sg13cmos5l_nor2_1
+        4   36.288   sg13cmos5l_nor2b_1
+       19  172.368   sg13cmos5l_nor3_1
+        5   54.432   sg13cmos5l_nor4_1
+       62  562.464   sg13cmos5l_o21ai_1
+        1   10.886   sg13cmos5l_or2_2
+       63  914.458   sg13cmos5l_xnor2_1
+        8  116.122   sg13cmos5l_xor2_1
+
+   Chip area for module '\rosetta_mdpll_min2': 5974.592400
+     of which used for sequential elements: 1322.697600 (22.14%)
+
+End of script. Logfile hash: 48a4d05f43, time: 0.16s, user: 0.09s, system: 0.01s, MEM: 29.72 MB peak
+Yosys 0.70+385 (git sha1 098e46a36, Release, Clang /usr/bin/clang++ 21.1.8)
+Time spent: 71% 2x abc (0 sec), 6% 1x techmap (0 sec), ...

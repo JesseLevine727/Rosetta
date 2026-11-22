@@ -16,18 +16,36 @@ Deadline: **18 January 2027**. Target submission: **17 January**.
    flow runs on every push from Phase 1 on.
 4. **Cut from the top of the ladder, never from verification.**
 5. **Every use of AI is logged** in `writeup/ai-log.md` as it happens.
+6. **Proofs, then the board, then the ASIC flow** (user, 21 Nov). An RTL
+   change goes through its block, lane and chip proofs, then the FPGA
+   regression on the PYNQ-Z1, and only then through hardening. Every block
+   and every mode must have been exercised on the board at least once (the
+   hardware coverage record).
 
-## Scope ladder
+## Scope
 
-| Rung | Contents | Status |
-|---|---|---|
-| 1 | Lanes, sequencer, host port, compiler. UART, SPI, I2C in every role, proven. Clean TT flow at 60 MHz. | in progress: 11 blocks proven; UART and SPI run on the FPGA; full chip does not route yet; compiler not started |
-| 2 | Listen with timestamps, Translate, Intercept. Low-speed USB keyboard. Ethernet transmit. | not started |
-| 3 | Stress. Ethernet receive and `ping`. Mutation score. | not started |
-| 4 | Imitate. | not started |
+**Target set by the user on 21 Nov: the chip must be able to emulate every
+protocol the competition page names.** This replaces the earlier ladder in
+which USB and Ethernet were optional rungs.
 
-Rung 1 is the submission floor. Rungs 2-4 are added only while the schedule
-holds.
+| Protocol | Status (21 Nov) |
+|---|---|
+| UART, SPI, I2C, every role | compiled from descriptions, pass on the RTL in simulation; UART and SPI ran on the FPGA from hand-written programs; I2C never on hardware |
+| PS/2, JTAG, SWD | not started; expected to need compiler work only (to be confirmed by the study) |
+| Low-speed USB | not started; hardware features designed in, nothing run end to end |
+| CAN | not started; bitwise arbitration may need hardware |
+| 10 Mbit Ethernet | not started; receive margin is too thin with single-edge sampling at 60 MHz, a hardware change is likely; frames limited to about 500 bytes by the lane data region |
+
+The six abilities (speak, prove, listen, stress, translate, imitate) remain
+the framing; speak, listen and prove exist today.
+
+Competition page facts that bound the work: no fixed clock target, the
+RP2350 supplies the clock, 60 MHz confirmed, pads about 66 MHz; internal
+mixed-signal circuits (a PLL) are allowed if precheck passes; external parts
+go on a Pmod; for USB and Ethernet "the more of the protocol work (line
+coding, CRC, clock recovery) your chip does itself, the better"; flexibility
+is the main criterion and the write-up is weighed heavily; a clean Tiny
+Tapeout flow and precheck are required.
 
 ## Phases
 
@@ -156,4 +174,6 @@ memory wrappers, top level.
 - 15 Nov: **memory input edges (22 SRAM pins over the 0.5952 ns limit): fix found but NOT merged.** Explicit `sg13cmos5l_buf_8` on each of the 77 macro inputs, in a `ROSETTA_MEMBUF` branch of `rosetta_sram512x32.sv` (off for proofs, simulation and FPGA), brings all 22 pins inside the limit for about 1,600 um2; the flow keeps all 154 buffers. Tried and rejected: `set_max_transition` on pins (OpenSTA accepts only clocks, ports or the design); a design-wide 0.40 ns limit during place and route (581,000 um2, does not route); `RSZ_DONT_TOUCH_RX` on the buffers (the resizer then cannot buffer the nets feeding them and aborts). The change is saved as `/home/elfo/tools/tt-local/membuf_gapclosed.patch`; runs in `/home/elfo/tools/tt-local/rosetta-memslew-*`.
 - 15 Nov: **TOP OPEN RISK: the layout recipe is fragile.** The "one net routed straight across a memory" failure keeps returning when placement shifts. With the buffers and the gap open to routing: 97 shorts on one net (it crossed the program memory and ran up the 33 um gap). With both gap strips also closed to routing (and `GRT_OVERFLOW_ITERS` 150): two clean runs (`memslew-c3`, `memslew-c4`: routing/DRC/LVS/antenna 0, slow setup +2.35 / +2.85 ns). But the same settings on the repo after the one-term hazard fix failed: 348 routing violations on three nets that reach memory pins from cells placed beside the memory at low y, with the global route going straight through the macro body to the pin face; global-routing overflow 980 against 380-500 in the passing runs. So the repo was restored to the last proven state (no buffers, gap closed to cells only). Whether the hazard-fix commit itself still hardens cleanly is not yet known locally; GitHub's build of c2ef264 will show. Ideas for next session: keep cells out of a band beside the memories (cells there can only reach the top-face pins by going round); or move the memories so nothing sits beside them; or find why global routing tolerates routes over zero-capacity macro area and stop it (for example a hard failure on overflow over macros, then retries with a different seed); in any case run several placements of the same recipe before trusting it.
 - 15 Nov: **session end. Open list:** (1) the recipe fragility above; (2) merge the memory input buffers once (1) is solved; (3) reset determinism proof T2 (bounded to 12); (4) RTL versus netlist equivalence, not started; (5) full-chip bring-up through SPI frames in the solver (timed out); (6) documents out of step with rulings (`isa.md` layouts, lane.md statements corrected by ruling 56, top.md macro path, "SETM halves" still listed as unruled); (7) about 80 overloaded standard-cell nets; (8) I2C has never run on the FPGA; (9) design decisions parked: SPI target loses prepared words on early deselect, no `cut` records; (10) housekeeping: `_opam/`, empty `JaneST-ASIC` stub folder, root-owned files on the board. Nothing is running locally.
+- 21 Nov: **GitHub's gds build failed on c2ef264 and 14dcb9c** (the two commits after the hazard fix); 8f26af3 had passed. Cause not yet confirmed (log not retrievable); consistent with the layout fragility. Local rebuild of the current commit started.
+- 21 Nov: **new direction from the user**: all nine protocols on the competition page are required (see Scope), and rule 6 (proofs, then the board, then the ASIC flow). Started: a protocol feasibility and gap study for USB, Ethernet, CAN, JTAG, SWD and PS/2 on the real RTL (report to `study/protocols/REPORT.md`); an FPGA regression gate on the PYNQ-Z1 that runs the compiler's scenarios on the board with a hardware coverage record for every block and mode.
 

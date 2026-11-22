@@ -321,7 +321,7 @@ differential check), either direction.
 
 | Feature | Behaviour |
 |---|---|
-| operation timer | not cancelled by the early end (tick.md 7 has no such input). A stale `ot_done` can only matter to an operation that started no timer of its own, and none can: a `PIN` with wait > 0 and a `RAW DRIVE` start a new timer in their effect cycle (a new start suppresses the old timer's `ot_done` in that cycle and replaces it); a `PIN` with wait 0 completes at `pin_we`; `FIELD` and `RAW SAMPLE` do not look at `ot_done`. Proven at lane level (2.3, lane P-H3b) |
+| operation timer | **superseded by 2.5 (ruling 60): the timer IS cancelled at an early end.** Original text: not cancelled by the early end (tick.md 7 has no such input). A stale `ot_done` can only matter to an operation that started no timer of its own, and none can: a `PIN` with wait > 0 and a `RAW DRIVE` start a new timer in their effect cycle (a new start suppresses the old timer's `ot_done` in that cycle and replaces it); a `PIN` with wait 0 completes at `pin_we`; `FIELD` and `RAW SAMPLE` do not look at `ot_done`. Proven at lane level (2.3, lane P-H3b) |
 | outputs | the early end changes no output; the level of the `RAW DRIVE` stays until the next operation changes it, as at a normal completion |
 | launch delay | `RAW DRIVE` requests are never delayed (`coding.md` 4.2, ruling 48): unchanged |
 | abort, halt | as today (the `RAW DRIVE` is abandoned / cleared) |
@@ -359,6 +359,53 @@ node's SOF falling edge reaches the RXD pin in cycle p.
 
 The join costs 5 cycles plus the transceiver loop delay, against 15-25
 cycles through an event handler today.
+
+### 2.5 Timer cancel at an early end (ruling 60; replaces the "operation timer" row of 2.2)
+
+Found by the lane-level proof (22 Nov): leaving the timer of an early-ended
+`RAW DRIVE` running lets the lane go idle with a live timer, and the
+sequencer may then write `PERIOD`..`THR2L`. That breaks the tick block's
+proven environment rule "no configuration change other than `TICK` while the
+operation timer runs", so for that window the tick's block properties were
+not covered. The timer is therefore cancelled.
+
+- `rosetta_field`: new 1-bit output `ot_cancel_o`.
+  `ot_cancel_o = 1` exactly in a cycle c in which a `RAW DRIVE` completes
+  and `ot_done_i = 0` in c, that is a completion by the edge term of 2.1
+  alone: `ot_cancel_o = cu_done(RAW DRIVE in c) && !ot_done_i`. It is 0 in
+  every other cycle; with `cfg_rawedge_i = 0` it is constant 0. In the effect
+  cycle e with an edge in e, `ot_start_o` and `ot_cancel_o` are both 1 in e
+  (unless the timer's own `ot_done` is already 1 in e, the N = 1 case of
+  `tick.md` 7, where the drive completes by the timer and `ot_cancel_o = 0`).
+- `rosetta_tick`: new 1-bit input `ot_cancel_i`. `tick.md` 7 "The timer is
+  cancelled by abort, halt and a new `ot_start`" becomes "... a new
+  `ot_start`, and `ot_cancel_i`": if `ot_cancel_i = 1` in cycle c, no timer
+  is running from c + 1 on and there is no `ot_done` after c until a later
+  `ot_start_i` starts a new timer. This holds also when `ot_start_i = 1` in c
+  (the cancel wins: the timer started in c does not run on). `ot_done` in c
+  itself does not depend on `ot_cancel_i` (no combinational path from
+  `ot_cancel_i` to any output). With no timer running and no start in c,
+  `ot_cancel_i` has no effect. Nothing else in the block changes.
+- `rosetta_lane`: `u_field.ot_cancel_o` drives `u_tick.ot_cancel_i`.
+- Zero rule: with `CODE[12] = 0`, `ot_cancel_o` is constant 0, so the tick
+  sees `ot_cancel_i = 0` always and is today's block.
+
+Consequences: an idle lane never has a running operation timer (the ruling-42
+statement holds again without exception); the tick's environment rule on
+configuration changes holds in the lane as before; P-H3b (2.3) remains and
+becomes: after an early end there is no `ot_done` at all until the next
+operation starts its own timer.
+
+Required properties. Field: `ot_cancel_o` exactly as defined (new); with
+`cfg_rawedge_i = 0` it is 0. Tick: after `ot_cancel_i` in c, `ot_done_o = 0`
+in every cycle from c + 1 until the cycle of the next `ot_start_i` (and from
+that start on, the new timer follows section 7 exactly); `ot_done_o` in c
+equals what it would be with `ot_cancel_i = 0`; with `ot_cancel_i` held 0 the
+block is unchanged. Lane: the wiring; an idle lane runs no operation timer;
+the tick's configuration-stability rule holds. Covers: cancel in the effect
+cycle; cancel later; cancel in the cycle the timer would have ended anyway
+(not asserted: the timer wins); a `PIN` with wait > 0 directly after a
+cancelled timer, completing on its own timer.
 
 ## 3. H4: `RECOVER` options
 
